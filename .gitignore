@@ -1,5 +1,9 @@
-LULESH_OLD/
+*
+!*/
+!*.*
 *.txt
-TODO
-README
+*.cmake
+LULESH_OLD/
 *.0
+CMakeFiles/
+.vscode/
