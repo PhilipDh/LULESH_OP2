@@ -237,6 +237,29 @@ Index_t* symmX;              /* symmetry plane nodesets */
 Index_t* symmY;
 Index_t* symmZ;
 
+// Cutoffs (treat as constants)
+const Real_t  m_e_cut = Real_t(1.0e-7);             // energy tolerance 
+const Real_t  m_p_cut = Real_t(1.0e-7) ;             // pressure tolerance 
+const Real_t  m_q_cut = Real_t(1.0e-7) ;             // q tolerance 
+const Real_t  m_v_cut = Real_t(1.0e-10) ;             // relative volume tolerance 
+const Real_t  m_u_cut = Real_t(1.0e-7) ;             // velocity tolerance 
+
+// Other constants (usually setable, but hardcoded in this proxy app)
+
+const Real_t  m_hgcoef = Real_t(3.0);            // hourglass control 
+const Real_t  m_ss4o3 = (Real_t(4.0)/Real_t(3.0));
+const Real_t  m_qstop = Real_t(1.0e+12);             // excessive q indicator 
+const Real_t  m_monoq_max_slope = Real_t(1.0);
+const Real_t  m_monoq_limiter_mult = Real_t(2.0);
+const Real_t  m_qlc_monoq = Real_t(0.5);         // linear term coef for q 
+const Real_t  m_qqc_monoq = (Real_t(2.0)/Real_t(3.0));         // quadratic term coef for q 
+const Real_t  m_qqc = Real_t(2.0);
+const Real_t  m_eosvmax = Real_t(1.0e+9);
+const Real_t  m_eosvmin = Real_t(1.0e-9);
+const Real_t  m_pmin = Real_t(0.);              // pressure floor 
+const Real_t  m_emin = Real_t(-1.0e+15);              // energy floor 
+const Real_t  m_dvovmax = Real_t(0.1);           // maximum allowable volume change 
+const Real_t  m_refdens = Real_t(1.0);           // reference density 
 /* Other Constants */
 
 // Variables to keep track of timestep, simulation time, and cycle
@@ -256,6 +279,11 @@ Index_t sizeY ;
 Index_t sizeZ ;
 Index_t m_numElem ;
 Index_t m_numNode ;
+
+
+// OMP hack 
+Index_t* m_nodeElemStart ;
+Index_t* m_nodeElemCornerList ;
 
 // Used in setup
 Index_t rowMin, rowMax;
@@ -1770,7 +1798,8 @@ void CalcVolumeForceForElems(Domain& domain)
    // Index_t numElem = domain.numElem() ;
    Index_t numElem = m_numElem ;
    if (numElem != 0) {
-      Real_t  hgcoef = domain.hgcoef() ;
+      // Real_t  hgcoef = domain.hgcoef() ;
+      Real_t  hgcoef = m_hgcoef ;
       Real_t *sigxx  = Allocate<Real_t>(numElem) ;
       Real_t *sigyy  = Allocate<Real_t>(numElem) ;
       Real_t *sigzz  = Allocate<Real_t>(numElem) ;
@@ -1957,7 +1986,8 @@ void LagrangeNodal(Domain& domain)
 
    // const Real_t delt = domain.deltatime() ;
    const Real_t delt = m_deltatime ;
-   Real_t u_cut = domain.u_cut() ;
+   // Real_t u_cut = domain.u_cut() ;
+   Real_t u_cut = m_u_cut ;
 
   /* time of boundary condition evaluation is beginning of step for force and
    * acceleration boundary conditions. */
@@ -2547,10 +2577,14 @@ static inline
 void CalcMonotonicQRegionForElems(Domain &domain, Int_t r,
                                   Real_t ptiny)
 {
-   Real_t monoq_limiter_mult = domain.monoq_limiter_mult();
-   Real_t monoq_max_slope = domain.monoq_max_slope();
-   Real_t qlc_monoq = domain.qlc_monoq();
-   Real_t qqc_monoq = domain.qqc_monoq();
+   // Real_t monoq_limiter_mult = domain.monoq_limiter_mult();
+   // Real_t monoq_max_slope = domain.monoq_max_slope();
+   // Real_t qlc_monoq = domain.qlc_monoq();
+   // Real_t qqc_monoq = domain.qqc_monoq();
+   Real_t monoq_limiter_mult = m_monoq_limiter_mult;
+   Real_t monoq_max_slope =m_monoq_max_slope;
+   Real_t qlc_monoq = m_qlc_monoq;
+   Real_t qqc_monoq = m_qqc_monoq;
 
 #pragma omp parallel for firstprivate(qlc_monoq, qqc_monoq, monoq_limiter_mult, monoq_max_slope, ptiny)
    // for ( Index_t i = 0 ; i < domain.regElemSize(r); ++i ) {
@@ -2806,7 +2840,7 @@ void CalcQForElems(Domain& domain)
       Index_t idx = -1; 
       for (Index_t i=0; i<numElem; ++i) {
          // if ( domain.q(i) > domain.qstop() ) {
-         if ( q[i] > domain.qstop() ) {
+         if ( q[i] > m_qstop ) {
             idx = i ;
             break ;
          }
@@ -3020,16 +3054,26 @@ static inline
 void EvalEOSForElems(Domain& domain, Real_t *vnewc,
                      Int_t numElemReg, Index_t *regElemList, Int_t rep)
 {
-   Real_t  e_cut = domain.e_cut() ;
-   Real_t  p_cut = domain.p_cut() ;
-   Real_t  ss4o3 = domain.ss4o3() ;
-   Real_t  q_cut = domain.q_cut() ;
+   // Real_t  e_cut = domain.e_cut() ;
+   // Real_t  p_cut = domain.p_cut() ;
+   // Real_t  ss4o3 = domain.ss4o3() ;
+   // Real_t  q_cut = domain.q_cut() ;
 
-   Real_t eosvmax = domain.eosvmax() ;
-   Real_t eosvmin = domain.eosvmin() ;
-   Real_t pmin    = domain.pmin() ;
-   Real_t emin    = domain.emin() ;
-   Real_t rho0    = domain.refdens() ;
+   // Real_t eosvmax = domain.eosvmax() ;
+   // Real_t eosvmin = domain.eosvmin() ;
+   // Real_t pmin    = domain.pmin() ;
+   // Real_t emin    = domain.emin() ;
+   // Real_t rho0    = domain.refdens() ;
+   Real_t  e_cut = m_e_cut ;
+   Real_t  p_cut = m_p_cut ;
+   Real_t  ss4o3 = m_ss4o3 ;
+   Real_t  q_cut = m_q_cut ;
+
+   Real_t eosvmax = m_eosvmax ;
+   Real_t eosvmin = m_eosvmin ;
+   Real_t pmin    = m_pmin ;
+   Real_t emin    = m_emin ;
+   Real_t rho0    = m_refdens ;
 
    // These temporaries will be of different size for 
    // each call (due to different sized region element
@@ -3160,8 +3204,10 @@ void ApplyMaterialPropertiesForElems(Domain& domain)
 
   if (numElem != 0) {
     /* Expose all of the variables needed for material evaluation */
-    Real_t eosvmin = domain.eosvmin() ;
-    Real_t eosvmax = domain.eosvmax() ;
+   //  Real_t eosvmin = domain.eosvmin() ;
+   //  Real_t eosvmax = domain.eosvmax() ;
+    Real_t eosvmin = m_eosvmin ;
+    Real_t eosvmax = m_eosvmax ;
     Real_t *vnewc = Allocate<Real_t>(numElem) ;
 
 #pragma omp parallel
@@ -3277,8 +3323,10 @@ void LagrangeElements(Domain& domain, Index_t numElem)
 
   ApplyMaterialPropertiesForElems(domain) ;
 
+//   UpdateVolumesForElems(domain, 
+//                         domain.v_cut(), numElem) ;
   UpdateVolumesForElems(domain, 
-                        domain.v_cut(), numElem) ;
+                        m_v_cut, numElem) ;
 }
 
 /******************************************/
@@ -3433,18 +3481,20 @@ void CalcTimeConstraintsForElems(Domain& domain) {
       /* evaluate time constraint */
       // CalcCourantConstraintForElems(domain, domain.regElemSize(r),
                                     // domain.regElemlist(r),
+                                    // domain.qqc(),
+                                    // domain.dtcourant()) ;
       CalcCourantConstraintForElems(domain, m_regElemSize[r],
                                     m_regElemlist[r],
-                                    domain.qqc(),
-                                    // domain.dtcourant()) ;
+                                    m_qqc,
                                     m_dtcourant) ;
 
       /* check hydro constraint */
       // CalcHydroConstraintForElems(domain, domain.regElemSize(r),
                                  //  domain.regElemlist(r),
+                                 //  domain.dvovmax(),
       CalcHydroConstraintForElems(domain, m_regElemSize[r],
                                   m_regElemlist[r],
-                                  domain.dvovmax(),
+                                  m_dvovmax,
                                   m_dthydro) ;
    }
 }
