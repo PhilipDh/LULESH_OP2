@@ -160,6 +160,9 @@ void ParseCommandLineOptions(int argc, char *argv[],
             exit(0);
 #endif
          }
+         else if(strcmp(argv[i], "OP_NO_REALLOC" )== 0){
+            i++;
+         }
          else {
             char msg[80];
             PrintCommandLineOptions(argv[0], myRank);

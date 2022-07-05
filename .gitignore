@@ -2,6 +2,7 @@
 !*/
 !*.*
 *.txt
+!CMakeLists.txt
 *.cmake
 LULESH_OLD/
 *.0

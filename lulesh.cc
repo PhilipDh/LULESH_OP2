@@ -154,12 +154,17 @@ Additional BSD Notice
 #include <sys/time.h>
 #include <iostream>
 #include <unistd.h>
+#include <iomanip>
+
+#include <op_seq.h>
 
 #if _OPENMP
 # include <omp.h>
 #endif
 
 #include "lulesh.h"
+
+#include "CalcForceForNodes.h"
 
 // Define arrays and constants
 // Should maybe be moved to a header file to avoid clutter or to the main function to not be global
@@ -227,9 +232,9 @@ Real_t* xdd;              /* accelerations */
 Real_t* ydd;
 Real_t* zdd;
 
-Real_t* fx;                 /* forces */
-Real_t* fy;
-Real_t* fz;
+Real_t* m_fx;                 /* forces */
+Real_t* m_fy;
+Real_t* m_fz;
 
 Real_t* nodalMass;          /* mass */
 
@@ -344,23 +349,25 @@ void allocateNodes(Index_t colLoc, Index_t rowLoc, Index_t planeLoc,
    zd = (Real_t*) malloc(numNode * sizeof(Real_t));
 
    xdd = (Real_t*) malloc(numNode * sizeof(Real_t)); //Accelerations
+   // xdd = (Real_t*) malloc(numNode * 3 * sizeof(Real_t)); //Accelerations
    ydd = (Real_t*) malloc(numNode * sizeof(Real_t));
    zdd = (Real_t*) malloc(numNode * sizeof(Real_t));
 
-   fx = (Real_t*) malloc(numNode * sizeof(Real_t)); // Forces
-   fy = (Real_t*) malloc(numNode * sizeof(Real_t));
-   fz = (Real_t*) malloc(numNode * sizeof(Real_t));
+   m_fx = (Real_t*) malloc(numNode * sizeof(Real_t)); // Forces
+   // m_fx = (Real_t*) malloc(numNode * 3 * sizeof(Real_t)); // Forces
+   m_fy = (Real_t*) malloc(numNode * sizeof(Real_t));
+   m_fz = (Real_t*) malloc(numNode * sizeof(Real_t));
 
 
    nodalMass = (Real_t*) malloc(numNode * sizeof(Real_t));  // mass
 
         // Boundary nodesets
-  if (colLoc == 0)
-   symmX = (Index_t*) malloc(edgeNodes*edgeNodes*sizeof(Index_t));
-  if (rowLoc == 0)
-   symmY = (Index_t*) malloc(edgeNodes*edgeNodes*sizeof(Index_t));
-  if (planeLoc == 0)
-   symmZ = (Index_t*) malloc(edgeNodes*edgeNodes*sizeof(Index_t));
+   if (colLoc == 0)
+      symmX = (Index_t*) malloc(edgeNodes*edgeNodes*sizeof(Index_t));
+   if (rowLoc == 0)
+      symmY = (Index_t*) malloc(edgeNodes*edgeNodes*sizeof(Index_t));
+   if (planeLoc == 0)
+      symmZ = (Index_t*) malloc(edgeNodes*edgeNodes*sizeof(Index_t));
 }
 
 static inline 
@@ -441,6 +448,7 @@ void initialise(Index_t colLoc,
    }
 
    for (Index_t i = 0; i<m_numNode;++i){
+   // for (Index_t i = 0; i<m_numNode*3;++i){
       xdd[i] = Real_t(0.0);
       ydd[i] = Real_t(0.0);
       zdd[i] = Real_t(0.0);
@@ -605,13 +613,13 @@ void initialise(Index_t colLoc,
       Index_t rowInc   = i*edgeNodes ;
       for (Index_t j=0; j<edgeNodes; ++j) {
          if (planeLoc == 0) {
-      symmZ[nidx] = rowInc   + j ;
+            symmZ[nidx] = rowInc   + j ;
          }
          if (rowLoc == 0) {
-      symmY[nidx] = planeInc + j ;
+            symmY[nidx] = planeInc + j ;
          }
          if (colLoc == 0) {
-      symmX[nidx] = planeInc + j*edgeNodes ;
+            symmX[nidx] = planeInc + j*edgeNodes ;
          }
          ++nidx ;
       }
@@ -828,6 +836,9 @@ void TimeIncrement(Domain& domain)
                     ((sizeof(Real_t) == 4) ? MPI_FLOAT : MPI_DOUBLE),
                     MPI_MIN, MPI_COMM_WORLD) ;
 #else
+      //op_par_loop(timeIncrem, "TimeIncrement", nodes, 
+      //             op_arg_dat(&gnewdt, -1, OP_ID, 1, "double", OP_READ),
+      //             op_arg_gbl(&newdt,   1,           "double", OP_MIN))
       newdt = gnewdt;
 #endif
       
@@ -961,7 +972,10 @@ void InitStressTermsForElems(Domain &domain,
    //
    // pull in the stresses appropriate to the hydro integration
    //
-
+   // op_par_loop(initStressTerms, "initStressTerms", elems,
+   //             op_arg_dat(sigxx, -1, OP_ID, 3, "double", OP_WRITE),
+   //             op_arg_dat(q, -1, OP_ID, 1, "double", OP_READ)
+   //             op_arg_dat(p, -1, OP_ID, 1, "double", OP_READ))
 #pragma omp parallel for firstprivate(numElem)
    for (Index_t i = 0 ; i < numElem ; ++i){
       // sigxx[i] = sigyy[i] = sigzz[i] =  - domain.p(i) - domain.q(i) ;
@@ -1240,9 +1254,9 @@ void IntegrateStressForElems( Domain &domain,
          //  domain.fx(gnode) += fx_local[lnode];
          //  domain.fy(gnode) += fy_local[lnode];
          //  domain.fz(gnode) += fz_local[lnode];
-          fx[gnode] += fx_local[lnode];
-          fy[gnode] += fy_local[lnode];
-          fz[gnode] += fz_local[lnode];
+          m_fx[gnode] += fx_local[lnode];
+          m_fy[gnode] += fy_local[lnode];
+          m_fz[gnode] += fz_local[lnode];
        }
     }
   }
@@ -1267,9 +1281,9 @@ void IntegrateStressForElems( Domain &domain,
       //   domain.fx(gnode) = fx_tmp ;
       //   domain.fy(gnode) = fy_tmp ;
       //   domain.fz(gnode) = fz_tmp ;
-        fx[gnode] = fx_tmp ;
-        fy[gnode] = fy_tmp ;
-        fz[gnode] = fz_tmp ;
+        m_fx[gnode] = fx_tmp ;
+        m_fy[gnode] = fy_tmp ;
+        m_fz[gnode] = fz_tmp ;
      }
      Release(&fz_elem) ;
      Release(&fy_elem) ;
@@ -1656,37 +1670,37 @@ void CalcFBHourglassForceForElems( Domain &domain,
          // domain.fx(n7si2) += hgfx[7];
          // domain.fy(n7si2) += hgfy[7];
          // domain.fz(n7si2) += hgfz[7];
-         fx[n0si2] += hgfx[0];
-         fy[n0si2] += hgfy[0];
-         fz[n0si2] += hgfz[0];
+         m_fx[n0si2] += hgfx[0];
+         m_fy[n0si2] += hgfy[0];
+         m_fz[n0si2] += hgfz[0];
 
-         fx[n1si2] += hgfx[1];
-         fy[n1si2] += hgfy[1];
-         fz[n1si2] += hgfz[1];
+         m_fx[n1si2] += hgfx[1];
+         m_fy[n1si2] += hgfy[1];
+         m_fz[n1si2] += hgfz[1];
 
-         fx[n2si2] += hgfx[2];
-         fy[n2si2] += hgfy[2];
-         fz[n2si2] += hgfz[2];
+         m_fx[n2si2] += hgfx[2];
+         m_fy[n2si2] += hgfy[2];
+         m_fz[n2si2] += hgfz[2];
 
-         fx[n3si2] += hgfx[3];
-         fy[n3si2] += hgfy[3];
-         fz[n3si2] += hgfz[3];
+         m_fx[n3si2] += hgfx[3];
+         m_fy[n3si2] += hgfy[3];
+         m_fz[n3si2] += hgfz[3];
 
-         fx[n4si2] += hgfx[4];
-         fy[n4si2] += hgfy[4];
-         fz[n4si2] += hgfz[4];
+         m_fx[n4si2] += hgfx[4];
+         m_fy[n4si2] += hgfy[4];
+         m_fz[n4si2] += hgfz[4];
 
-         fx[n5si2] += hgfx[5];
-         fy[n5si2] += hgfy[5];
-         fz[n5si2] += hgfz[5];
+         m_fx[n5si2] += hgfx[5];
+         m_fy[n5si2] += hgfy[5];
+         m_fz[n5si2] += hgfz[5];
 
-         fx[n6si2] += hgfx[6];
-         fy[n6si2] += hgfy[6];
-         fz[n6si2] += hgfz[6];
+         m_fx[n6si2] += hgfx[6];
+         m_fy[n6si2] += hgfy[6];
+         m_fz[n6si2] += hgfz[6];
 
-         fx[n7si2] += hgfx[7];
-         fy[n7si2] += hgfy[7];
-         fz[n7si2] += hgfz[7];
+         m_fx[n7si2] += hgfx[7];
+         m_fy[n7si2] += hgfy[7];
+         m_fz[n7si2] += hgfz[7];
       }
    }
 
@@ -1709,9 +1723,9 @@ void CalcFBHourglassForceForElems( Domain &domain,
          // domain.fx(gnode) += fx_tmp ;
          // domain.fy(gnode) += fy_tmp ;
          // domain.fz(gnode) += fz_tmp ;
-         fx[gnode] += fx_tmp ;
-         fy[gnode] += fy_tmp ;
-         fz[gnode] += fz_tmp ;
+         m_fx[gnode] += fx_tmp ;
+         m_fy[gnode] += fy_tmp ;
+         m_fz[gnode] += fz_tmp ;
       }
       Release(&fz_elem) ;
       Release(&fy_elem) ;
@@ -1804,6 +1818,9 @@ void CalcVolumeForceForElems(Domain& domain)
       Real_t *sigyy  = Allocate<Real_t>(numElem) ;
       Real_t *sigzz  = Allocate<Real_t>(numElem) ;
       Real_t *determ = Allocate<Real_t>(numElem) ;
+      // Real_t *sigxx  = Allocate<Real_t>(3*numElem) ;
+      //op_decl_dat_temp(elems, 3, "double", sigxx, "sigxx");
+      //op_decl_dat_temp(elems, 1, "double", determ, "determ");
 
       /* Sum contributions to total stress tensor */
       InitStressTermsForElems(domain, sigxx, sigyy, sigzz, numElem);
@@ -1829,6 +1846,8 @@ void CalcVolumeForceForElems(Domain& domain)
 
       CalcHourglassControlForElems(domain, determ, hgcoef) ;
 
+      //op_free_dat_temp(determ);
+      //op_free_dat_temp(sigxx);
       Release(&determ) ;
       Release(&sigzz) ;
       Release(&sigyy) ;
@@ -1849,14 +1868,16 @@ static inline void CalcForceForNodes(Domain& domain)
            true, false) ;
 #endif  
 
+// op_par_loop(setForceToZero, "setForceToZero", nodes,
+//             op_arg_dat(p_fx, -1, OP_ID, 3, "double", OP_WRITE));
 #pragma omp parallel for firstprivate(numNode)
   for (Index_t i=0; i<numNode; ++i) {
    //   domain.fx(i) = Real_t(0.0) ;
    //   domain.fy(i) = Real_t(0.0) ;
    //   domain.fz(i) = Real_t(0.0) ;
-     fx[i] = Real_t(0.0) ;
-     fy[i] = Real_t(0.0) ;
-     fz[i] = Real_t(0.0) ;
+     m_fx[i] = Real_t(0.0) ;
+     m_fy[i] = Real_t(0.0) ;
+     m_fz[i] = Real_t(0.0) ;
   }
 
   /* Calcforce calls partial, force, hourq */
@@ -1886,9 +1907,9 @@ void CalcAccelerationForNodes(Domain &domain, Index_t numNode)
       // domain.xdd(i) = domain.fx(i) / domain.nodalMass(i);
       // domain.ydd(i) = domain.fy(i) / domain.nodalMass(i);
       // domain.zdd(i) = domain.fz(i) / domain.nodalMass(i);
-      xdd[i] = fx[i] / nodalMass[i];
-      ydd[i] = fy[i] / nodalMass[i];
-      zdd[i] = fz[i] / nodalMass[i];
+      xdd[i] = m_fx[i] / nodalMass[i];
+      ydd[i] = m_fy[i] / nodalMass[i];
+      zdd[i] = m_fz[i] / nodalMass[i];
    }
 }
 
@@ -2794,12 +2815,12 @@ void CalcQForElems(Domain& domain)
 
    if (numElem != 0) {
       Int_t allElem = numElem +  /* local elem */
-            // 2*domain.sizeX()*domain.sizeY() + /* plane ghosts */
-            // 2*domain.sizeX()*domain.sizeZ() + /* row ghosts */
-            // 2*domain.sizeY()*domain.sizeZ() ; /* col ghosts */
             2*sizeX*sizeY + /* plane ghosts */
             2*sizeX*sizeZ + /* row ghosts */
             2*sizeY*sizeZ ; /* col ghosts */
+            // 2*domain.sizeX()*domain.sizeY() + /* plane ghosts */
+            // 2*domain.sizeX()*domain.sizeZ() + /* row ghosts */
+            // 2*domain.sizeY()*domain.sizeZ() ; /* col ghosts */
 
       // domain.AllocateGradients(numElem, allElem);
       AllocGradients(numElem, allElem);
@@ -3554,6 +3575,7 @@ void LagrangeLeapFrog(Domain& domain)
 
 int main(int argc, char *argv[])
 {
+   op_init(argc, argv, 2);
    Domain *locDom ;
 
    Real_t* x;
@@ -3628,15 +3650,63 @@ int main(int argc, char *argv[])
    int edgeElems = opts.nx;
    int edgeNodes = edgeElems+1;
 
-   int numElem = edgeElems * edgeElems * edgeElems;
-   int numNode = edgeNodes * edgeNodes * edgeNodes;
-
    allocateElems(edgeElems);
    allocateNodes(0,0,0,edgeNodes);
    //! The 0 zeroes are for the row, col and plane locations, might have to be removed/changed
    initialise(0,0,0,opts.nx,1,opts.numReg,opts.balance, opts.cost);
-   // x = (Real_t*) malloc(numNode *sizeof(Real_t))
 
+   op_set nodes = op_decl_set(m_numNode, "nodes");
+   op_set elems = op_decl_set(m_numElem, "elems");
+   op_set symmetry = op_decl_set(edgeNodes*edgeNodes, "symmetries");
+
+   op_map p_nodelist = op_decl_map(nodes, elems, 8, nodelist, "nodelist");
+   op_map p_symmX = op_decl_map(nodes, symmetry, 1, symmX, "symmX");
+   op_map p_symmY = op_decl_map(nodes, symmetry, 1, symmY, "symmY");
+   op_map p_symmZ = op_decl_map(nodes, symmetry, 1, symmZ, "symmZ");
+
+   //Node Centred
+   op_dat p_x = op_decl_dat(nodes, 3, "double", x, "p_x");
+   op_dat p_xd = op_decl_dat(nodes, 3, "double", xd, "p_xd");
+   op_dat p_xdd = op_decl_dat(nodes, 3, "double", xdd, "p_xdd");
+   op_dat p_fx = op_decl_dat(nodes, 3, "double", m_fx, "p_fx");
+   op_dat p_nodalMass = op_decl_dat(nodes, 3, "double", nodalMass, "p_nodalMass");
+   // //Elem Centred
+   op_dat p_e = op_decl_dat(elems, 1, "double", e, "p_e");
+   op_dat p_p = op_decl_dat(elems, 1, "double", p, "p_p");
+   op_dat p_q = op_decl_dat(elems, 1, "double", q, "p_q");
+   op_dat p_ql = op_decl_dat(elems, 1, "double", ql, "p_ql");
+   op_dat p_qq = op_decl_dat(elems, 1, "double", qq, "p_qq");
+   op_dat p_volo = op_decl_dat(elems, 1, "double", volo, "p_volo");
+   op_dat p_delv = op_decl_dat(elems, 1, "double", delv, "p_delv");
+   op_dat p_vdov = op_decl_dat(elems, 1, "double", m_vdov, "p_vdov");
+   op_dat p_arealg = op_decl_dat(elems, 1, "double", arealg, "p_arealg");
+   op_dat p_dxx = op_decl_dat(elems, 3, "double", dxx, "p_dxx");
+   
+   op_dat p_ss = op_decl_dat(elems, 1, "double", ss, "p_ss");
+   op_dat p_elemMass = op_decl_dat(elems, 1, "double", elemMass, "p_elemMass");
+   op_dat p_vnew = op_decl_dat(elems, 1, "double", vnew, "p_vnew");
+
+   // //Declare Constants
+   op_decl_const(1, "double", &m_e_cut);
+   op_decl_const(1, "double", &m_p_cut);
+   op_decl_const(1, "double", &m_q_cut);
+   op_decl_const(1, "double", &m_v_cut);
+   op_decl_const(1, "double", &m_u_cut);
+
+   op_decl_const(1, "double", &m_hgcoef);
+   op_decl_const(1, "double", &m_ss4o3);
+   op_decl_const(1, "double", &m_qstop);
+   op_decl_const(1, "double", &m_monoq_max_slope);
+   op_decl_const(1, "double", &m_monoq_limiter_mult);
+   op_decl_const(1, "double", &m_qlc_monoq);
+   op_decl_const(1, "double", &m_qqc_monoq);
+   op_decl_const(1, "double", &m_qqc);
+   op_decl_const(1, "double", &m_eosvmax);
+   op_decl_const(1, "double", &m_eosvmin);
+   op_decl_const(1, "double", &m_pmin);
+   op_decl_const(1, "double", &m_emin);
+   op_decl_const(1, "double", &m_dvovmax);
+   op_decl_const(1, "double", &m_refdens);
 
 #if USE_MPI   
    fieldData = &Domain::nodalMass ;
@@ -3710,7 +3780,8 @@ int main(int argc, char *argv[])
       VerifyAndWriteFinalOutput(elapsed_timeG, *locDom,m_cycle, opts.nx, numRanks, e);
    }
 
-   delete locDom; 
+   delete locDom;
+   op_exit(); 
 
 #if USE_MPI
    MPI_Finalize() ;
