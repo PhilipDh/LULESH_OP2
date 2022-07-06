@@ -162,10 +162,39 @@ Additional BSD Notice
 # include <omp.h>
 #endif
 
+
 #include "lulesh.h"
+const Real_t  m_hgcoef = Real_t(3.0);            // hourglass control 
+// Cutoffs (treat as constants)
+const Real_t  m_e_cut = Real_t(1.0e-7);             // energy tolerance 
+const Real_t  m_p_cut = Real_t(1.0e-7) ;             // pressure tolerance 
+const Real_t  m_q_cut = Real_t(1.0e-7) ;             // q tolerance 
+const Real_t  m_v_cut = Real_t(1.0e-10) ;             // relative volume tolerance 
+const Real_t  m_u_cut = Real_t(1.0e-7) ;             // velocity tolerance 
+
+// Other constants (usually setable, but hardcoded in this proxy app)
+
+
+const Real_t  m_ss4o3 = (Real_t(4.0)/Real_t(3.0));
+const Real_t  m_qstop = Real_t(1.0e+12);             // excessive q indicator 
+const Real_t  m_monoq_max_slope = Real_t(1.0);
+const Real_t  m_monoq_limiter_mult = Real_t(2.0);
+const Real_t  m_qlc_monoq = Real_t(0.5);         // linear term coef for q 
+const Real_t  m_qqc_monoq = (Real_t(2.0)/Real_t(3.0));         // quadratic term coef for q 
+const Real_t  m_qqc = Real_t(2.0);
+const Real_t  m_eosvmax = Real_t(1.0e+9);
+const Real_t  m_eosvmin = Real_t(1.0e-9);
+const Real_t  m_pmin = Real_t(0.);              // pressure floor 
+const Real_t  m_emin = Real_t(-1.0e+15);              // energy floor 
+const Real_t  m_dvovmax = Real_t(0.1);           // maximum allowable volume change 
+const Real_t  m_refdens = Real_t(1.0);           // reference density 
 
 #include "CalcForceForNodes.h"
-
+#include "CalcAccelerationForNodes.h"
+#include "CalcVelocityForNodes.h"
+#include "CalcPositionForNodes.h"
+#include "CalcKinematicsForElems.h"
+#include "CalcLagrangeElements.h"
 // Define arrays and constants
 // Should maybe be moved to a header file to avoid clutter or to the main function to not be global
 // Element-centered
@@ -244,29 +273,6 @@ Index_t* symmX;              /* symmetry plane nodesets */
 Index_t* symmY;
 Index_t* symmZ;
 
-// Cutoffs (treat as constants)
-const Real_t  m_e_cut = Real_t(1.0e-7);             // energy tolerance 
-const Real_t  m_p_cut = Real_t(1.0e-7) ;             // pressure tolerance 
-const Real_t  m_q_cut = Real_t(1.0e-7) ;             // q tolerance 
-const Real_t  m_v_cut = Real_t(1.0e-10) ;             // relative volume tolerance 
-const Real_t  m_u_cut = Real_t(1.0e-7) ;             // velocity tolerance 
-
-// Other constants (usually setable, but hardcoded in this proxy app)
-
-const Real_t  m_hgcoef = Real_t(3.0);            // hourglass control 
-const Real_t  m_ss4o3 = (Real_t(4.0)/Real_t(3.0));
-const Real_t  m_qstop = Real_t(1.0e+12);             // excessive q indicator 
-const Real_t  m_monoq_max_slope = Real_t(1.0);
-const Real_t  m_monoq_limiter_mult = Real_t(2.0);
-const Real_t  m_qlc_monoq = Real_t(0.5);         // linear term coef for q 
-const Real_t  m_qqc_monoq = (Real_t(2.0)/Real_t(3.0));         // quadratic term coef for q 
-const Real_t  m_qqc = Real_t(2.0);
-const Real_t  m_eosvmax = Real_t(1.0e+9);
-const Real_t  m_eosvmin = Real_t(1.0e-9);
-const Real_t  m_pmin = Real_t(0.);              // pressure floor 
-const Real_t  m_emin = Real_t(-1.0e+15);              // energy floor 
-const Real_t  m_dvovmax = Real_t(0.1);           // maximum allowable volume change 
-const Real_t  m_refdens = Real_t(1.0);           // reference density 
 /* Other Constants */
 
 // Variables to keep track of timestep, simulation time, and cycle
@@ -301,6 +307,7 @@ Index_t planeMin, planeMax ;
 op_set nodes;
 op_set elems;
 op_set symmetry;
+op_set temp_vols;
 
 op_map p_nodelist;
 op_map p_symmX;
@@ -311,12 +318,30 @@ op_dat p_fx;
 op_dat p_fy;
 op_dat p_fz;
 
+op_dat p_xd;
+op_dat p_yd;
+op_dat p_zd;
+
+op_dat p_xdd;
+op_dat p_ydd;
+op_dat p_zdd;
+
 op_dat p_x;
 op_dat p_y;
 op_dat p_z;
 
 op_dat p_p;
 op_dat p_q;
+op_dat p_v;
+op_dat p_volo;
+op_dat p_arealg;
+op_dat p_delv;
+op_dat p_vnew;
+op_dat p_vdov;
+
+op_dat p_ss;
+op_dat p_elemMass;
+op_dat p_nodalMass;
 
 //Temporary OP2 Vars
 Real_t *sigxx; 
@@ -326,6 +351,59 @@ Real_t *determ;
 op_dat p_sigxx;
 op_dat p_determ;
 
+Real_t* dvdx;
+Real_t* dvdy;
+Real_t* dvdz;
+Real_t* x8n;
+Real_t* y8n;
+Real_t* z8n;
+op_dat p_dvdx;
+op_dat p_dvdy;
+op_dat p_dvdz;
+op_dat p_x8n;
+op_dat p_y8n;
+op_dat p_z8n;
+
+
+op_dat p_dxx;
+op_dat p_dyy;
+op_dat p_dzz;
+
+static inline 
+void AllocStrains(Int_t numElem){
+   dxx = (Real_t*) malloc(numElem * sizeof(Real_t));
+   dyy = (Real_t*) malloc(numElem * sizeof(Real_t));
+   dzz = (Real_t*) malloc(numElem * sizeof(Real_t));
+}
+
+static inline
+void AllocGradients(Int_t numElem, Int_t allElem){
+   delx_xi = (Real_t*) malloc(numElem * sizeof(Real_t));
+   delx_eta = (Real_t*) malloc(numElem * sizeof(Real_t));
+   delx_zeta = (Real_t*) malloc(numElem * sizeof(Real_t));
+
+   delv_xi = (Real_t*) malloc(allElem * sizeof(Real_t));
+   delv_eta = (Real_t*) malloc(allElem * sizeof(Real_t));
+   delv_zeta = (Real_t*) malloc(allElem * sizeof(Real_t));
+}
+
+static inline
+void DeallocStrains(){
+   Release(&dzz);
+   Release(&dyy);
+   Release(&dxx);
+}
+
+static inline
+void DeallocGradients(){
+   Release(&delx_zeta);
+   Release(&delx_eta) ;
+   Release(&delx_xi)  ;
+
+   Release(&delv_zeta);
+   Release(&delv_eta) ;
+   Release(&delv_xi)  ;
+}
 
 static inline
 void allocateElems(Int_t edgeElems){
@@ -365,6 +443,17 @@ void allocateElems(Int_t edgeElems){
 
    sigxx = (Real_t*) malloc(numElem* 3 * sizeof(Real_t));
    determ = (Real_t*) malloc(numElem * sizeof(Real_t));
+
+   dvdx = (Real_t*) malloc(numElem * 8 * sizeof(Real_t));
+   dvdy = (Real_t*) malloc(numElem * 8 * sizeof(Real_t));
+   dvdz = (Real_t*) malloc(numElem * 8 * sizeof(Real_t));
+   x8n = (Real_t*) malloc(numElem * 8 * sizeof(Real_t));
+   y8n = (Real_t*) malloc(numElem * 8 * sizeof(Real_t));
+   z8n = (Real_t*) malloc(numElem * 8 * sizeof(Real_t));
+
+   dxx = (Real_t*) malloc(numElem * sizeof(Real_t));
+   dyy = (Real_t*) malloc(numElem * sizeof(Real_t));
+   dzz = (Real_t*) malloc(numElem * sizeof(Real_t));
 }
 
 static inline
@@ -401,42 +490,6 @@ void allocateNodes(Index_t colLoc, Index_t rowLoc, Index_t planeLoc,
       symmY = (Index_t*) malloc(edgeNodes*edgeNodes*sizeof(Index_t));
    if (planeLoc == 0)
       symmZ = (Index_t*) malloc(edgeNodes*edgeNodes*sizeof(Index_t));
-}
-
-static inline 
-void AllocStrains(Int_t numElem){
-   dxx = (Real_t*) malloc(numElem * sizeof(Real_t));
-   dyy = (Real_t*) malloc(numElem * sizeof(Real_t));
-   dzz = (Real_t*) malloc(numElem * sizeof(Real_t));
-}
-
-static inline
-void AllocGradients(Int_t numElem, Int_t allElem){
-   delx_xi = (Real_t*) malloc(numElem * sizeof(Real_t));
-   delx_eta = (Real_t*) malloc(numElem * sizeof(Real_t));
-   delx_zeta = (Real_t*) malloc(numElem * sizeof(Real_t));
-
-   delv_xi = (Real_t*) malloc(allElem * sizeof(Real_t));
-   delv_eta = (Real_t*) malloc(allElem * sizeof(Real_t));
-   delv_zeta = (Real_t*) malloc(allElem * sizeof(Real_t));
-}
-
-static inline
-void DeallocStrains(){
-   Release(&dzz);
-   Release(&dyy);
-   Release(&dxx);
-}
-
-static inline
-void DeallocGradients(){
-   Release(&delx_zeta);
-   Release(&delx_eta) ;
-   Release(&delx_xi)  ;
-
-   Release(&delv_zeta);
-   Release(&delv_eta) ;
-   Release(&delv_xi)  ;
 }
 
 static inline
@@ -1491,292 +1544,307 @@ void CalcFBHourglassForceForElems( Domain &domain,
       fz_elem = Allocate<Real_t>(numElem8) ;
    }
 
-   Real_t  gamma[4][8];
+   // Real_t  gamma[4][8];
 
-   gamma[0][0] = Real_t( 1.);
-   gamma[0][1] = Real_t( 1.);
-   gamma[0][2] = Real_t(-1.);
-   gamma[0][3] = Real_t(-1.);
-   gamma[0][4] = Real_t(-1.);
-   gamma[0][5] = Real_t(-1.);
-   gamma[0][6] = Real_t( 1.);
-   gamma[0][7] = Real_t( 1.);
-   gamma[1][0] = Real_t( 1.);
-   gamma[1][1] = Real_t(-1.);
-   gamma[1][2] = Real_t(-1.);
-   gamma[1][3] = Real_t( 1.);
-   gamma[1][4] = Real_t(-1.);
-   gamma[1][5] = Real_t( 1.);
-   gamma[1][6] = Real_t( 1.);
-   gamma[1][7] = Real_t(-1.);
-   gamma[2][0] = Real_t( 1.);
-   gamma[2][1] = Real_t(-1.);
-   gamma[2][2] = Real_t( 1.);
-   gamma[2][3] = Real_t(-1.);
-   gamma[2][4] = Real_t( 1.);
-   gamma[2][5] = Real_t(-1.);
-   gamma[2][6] = Real_t( 1.);
-   gamma[2][7] = Real_t(-1.);
-   gamma[3][0] = Real_t(-1.);
-   gamma[3][1] = Real_t( 1.);
-   gamma[3][2] = Real_t(-1.);
-   gamma[3][3] = Real_t( 1.);
-   gamma[3][4] = Real_t( 1.);
-   gamma[3][5] = Real_t(-1.);
-   gamma[3][6] = Real_t( 1.);
-   gamma[3][7] = Real_t(-1.);
+   // gamma[0][0] = Real_t( 1.);
+   // gamma[0][1] = Real_t( 1.);
+   // gamma[0][2] = Real_t(-1.);
+   // gamma[0][3] = Real_t(-1.);
+   // gamma[0][4] = Real_t(-1.);
+   // gamma[0][5] = Real_t(-1.);
+   // gamma[0][6] = Real_t( 1.);
+   // gamma[0][7] = Real_t( 1.);
+   // gamma[1][0] = Real_t( 1.);
+   // gamma[1][1] = Real_t(-1.);
+   // gamma[1][2] = Real_t(-1.);
+   // gamma[1][3] = Real_t( 1.);
+   // gamma[1][4] = Real_t(-1.);
+   // gamma[1][5] = Real_t( 1.);
+   // gamma[1][6] = Real_t( 1.);
+   // gamma[1][7] = Real_t(-1.);
+   // gamma[2][0] = Real_t( 1.);
+   // gamma[2][1] = Real_t(-1.);
+   // gamma[2][2] = Real_t( 1.);
+   // gamma[2][3] = Real_t(-1.);
+   // gamma[2][4] = Real_t( 1.);
+   // gamma[2][5] = Real_t(-1.);
+   // gamma[2][6] = Real_t( 1.);
+   // gamma[2][7] = Real_t(-1.);
+   // gamma[3][0] = Real_t(-1.);
+   // gamma[3][1] = Real_t( 1.);
+   // gamma[3][2] = Real_t(-1.);
+   // gamma[3][3] = Real_t( 1.);
+   // gamma[3][4] = Real_t( 1.);
+   // gamma[3][5] = Real_t(-1.);
+   // gamma[3][6] = Real_t( 1.);
+   // gamma[3][7] = Real_t(-1.);
 
 /*************************************************/
 /*    compute the hourglass modes */
 
+   op_par_loop(FBHourglassForceForElems, "CalcFBHourglassForceForElems", elems,
+               op_arg_dat(p_xd, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_xd, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_xd, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_yd, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_yd, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_yd, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_zd, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_zd, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_zd, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_fx, 0, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fx, 1, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fx, 2, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 3, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 4, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 5, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 6, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 7, p_nodelist, 1, "double", OP_WRITE),
+               op_arg_dat(p_fy, 0, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fy, 1, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fy, 2, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 3, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 4, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 5, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 6, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 7, p_nodelist, 1, "double", OP_WRITE),
+               op_arg_dat(p_fz, 0, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fz, 1, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fz, 2, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 3, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 4, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 5, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 6, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 7, p_nodelist, 1, "double", OP_WRITE),
+               op_arg_dat(p_dvdx, -1, OP_ID, 8, "double", OP_READ), 
+               op_arg_dat(p_dvdy, -1, OP_ID, 8, "double", OP_READ), 
+               op_arg_dat(p_dvdz, -1, OP_ID, 8, "double", OP_READ), 
+               op_arg_dat(p_x8n, -1, OP_ID, 8, "double", OP_READ), 
+               op_arg_dat(p_y8n, -1, OP_ID, 8, "double", OP_READ), 
+               op_arg_dat(p_z8n, -1, OP_ID, 8, "double", OP_READ),
+               op_arg_dat(p_determ, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_ss, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_elemMass, -1, OP_ID, 1, "double", OP_READ)
+   );
+// #pragma omp parallel for firstprivate(numElem, hourg)
+//    for(Index_t i2=0;i2<numElem;++i2){
+//       Real_t *fx_local, *fy_local, *fz_local ;
+//       Real_t hgfx[8], hgfy[8], hgfz[8] ;
+//       Real_t coefficient;
 
-#pragma omp parallel for firstprivate(numElem, hourg)
-   for(Index_t i2=0;i2<numElem;++i2){
-      Real_t *fx_local, *fy_local, *fz_local ;
-      Real_t hgfx[8], hgfy[8], hgfz[8] ;
+//       Real_t hourgam[8][4];
+//       Real_t xd1[8], yd1[8], zd1[8] ;
 
-      Real_t coefficient;
+//       // const Index_t *elemToNode = domain.nodelist(i2);
+//       const Index_t *elemToNode = &nodelist[i2*Index_t(8)];
+//       Index_t i3=8*i2;
+//       Real_t volinv=Real_t(1.0)/determ[i2];
+//       Real_t ss1, mass1, volume13 ;
+//       for(Index_t i1=0;i1<4;++i1){
 
-      Real_t hourgam[8][4];
-      Real_t xd1[8], yd1[8], zd1[8] ;
+//          Real_t hourmodx =
+//             x8n[i3] * gamma[i1][0] + x8n[i3+1] * gamma[i1][1] +
+//             x8n[i3+2] * gamma[i1][2] + x8n[i3+3] * gamma[i1][3] +
+//             x8n[i3+4] * gamma[i1][4] + x8n[i3+5] * gamma[i1][5] +
+//             x8n[i3+6] * gamma[i1][6] + x8n[i3+7] * gamma[i1][7];
 
-      // const Index_t *elemToNode = domain.nodelist(i2);
-      const Index_t *elemToNode = &nodelist[i2*Index_t(8)];
-      Index_t i3=8*i2;
-      Real_t volinv=Real_t(1.0)/determ[i2];
-      Real_t ss1, mass1, volume13 ;
-      for(Index_t i1=0;i1<4;++i1){
+//          Real_t hourmody =
+//             y8n[i3] * gamma[i1][0] + y8n[i3+1] * gamma[i1][1] +
+//             y8n[i3+2] * gamma[i1][2] + y8n[i3+3] * gamma[i1][3] +
+//             y8n[i3+4] * gamma[i1][4] + y8n[i3+5] * gamma[i1][5] +
+//             y8n[i3+6] * gamma[i1][6] + y8n[i3+7] * gamma[i1][7];
 
-         Real_t hourmodx =
-            x8n[i3] * gamma[i1][0] + x8n[i3+1] * gamma[i1][1] +
-            x8n[i3+2] * gamma[i1][2] + x8n[i3+3] * gamma[i1][3] +
-            x8n[i3+4] * gamma[i1][4] + x8n[i3+5] * gamma[i1][5] +
-            x8n[i3+6] * gamma[i1][6] + x8n[i3+7] * gamma[i1][7];
+//          Real_t hourmodz =
+//             z8n[i3] * gamma[i1][0] + z8n[i3+1] * gamma[i1][1] +
+//             z8n[i3+2] * gamma[i1][2] + z8n[i3+3] * gamma[i1][3] +
+//             z8n[i3+4] * gamma[i1][4] + z8n[i3+5] * gamma[i1][5] +
+//             z8n[i3+6] * gamma[i1][6] + z8n[i3+7] * gamma[i1][7];
 
-         Real_t hourmody =
-            y8n[i3] * gamma[i1][0] + y8n[i3+1] * gamma[i1][1] +
-            y8n[i3+2] * gamma[i1][2] + y8n[i3+3] * gamma[i1][3] +
-            y8n[i3+4] * gamma[i1][4] + y8n[i3+5] * gamma[i1][5] +
-            y8n[i3+6] * gamma[i1][6] + y8n[i3+7] * gamma[i1][7];
+//          hourgam[0][i1] = gamma[i1][0] -  volinv*(dvdx[i3  ] * hourmodx +
+//                                                   dvdy[i3  ] * hourmody +
+//                                                   dvdz[i3  ] * hourmodz );
 
-         Real_t hourmodz =
-            z8n[i3] * gamma[i1][0] + z8n[i3+1] * gamma[i1][1] +
-            z8n[i3+2] * gamma[i1][2] + z8n[i3+3] * gamma[i1][3] +
-            z8n[i3+4] * gamma[i1][4] + z8n[i3+5] * gamma[i1][5] +
-            z8n[i3+6] * gamma[i1][6] + z8n[i3+7] * gamma[i1][7];
+//          hourgam[1][i1] = gamma[i1][1] -  volinv*(dvdx[i3+1] * hourmodx +
+//                                                   dvdy[i3+1] * hourmody +
+//                                                   dvdz[i3+1] * hourmodz );
 
-         hourgam[0][i1] = gamma[i1][0] -  volinv*(dvdx[i3  ] * hourmodx +
-                                                  dvdy[i3  ] * hourmody +
-                                                  dvdz[i3  ] * hourmodz );
+//          hourgam[2][i1] = gamma[i1][2] -  volinv*(dvdx[i3+2] * hourmodx +
+//                                                   dvdy[i3+2] * hourmody +
+//                                                   dvdz[i3+2] * hourmodz );
 
-         hourgam[1][i1] = gamma[i1][1] -  volinv*(dvdx[i3+1] * hourmodx +
-                                                  dvdy[i3+1] * hourmody +
-                                                  dvdz[i3+1] * hourmodz );
+//          hourgam[3][i1] = gamma[i1][3] -  volinv*(dvdx[i3+3] * hourmodx +
+//                                                   dvdy[i3+3] * hourmody +
+//                                                   dvdz[i3+3] * hourmodz );
 
-         hourgam[2][i1] = gamma[i1][2] -  volinv*(dvdx[i3+2] * hourmodx +
-                                                  dvdy[i3+2] * hourmody +
-                                                  dvdz[i3+2] * hourmodz );
+//          hourgam[4][i1] = gamma[i1][4] -  volinv*(dvdx[i3+4] * hourmodx +
+//                                                   dvdy[i3+4] * hourmody +
+//                                                   dvdz[i3+4] * hourmodz );
 
-         hourgam[3][i1] = gamma[i1][3] -  volinv*(dvdx[i3+3] * hourmodx +
-                                                  dvdy[i3+3] * hourmody +
-                                                  dvdz[i3+3] * hourmodz );
+//          hourgam[5][i1] = gamma[i1][5] -  volinv*(dvdx[i3+5] * hourmodx +
+//                                                   dvdy[i3+5] * hourmody +
+//                                                   dvdz[i3+5] * hourmodz );
 
-         hourgam[4][i1] = gamma[i1][4] -  volinv*(dvdx[i3+4] * hourmodx +
-                                                  dvdy[i3+4] * hourmody +
-                                                  dvdz[i3+4] * hourmodz );
+//          hourgam[6][i1] = gamma[i1][6] -  volinv*(dvdx[i3+6] * hourmodx +
+//                                                   dvdy[i3+6] * hourmody +
+//                                                   dvdz[i3+6] * hourmodz );
 
-         hourgam[5][i1] = gamma[i1][5] -  volinv*(dvdx[i3+5] * hourmodx +
-                                                  dvdy[i3+5] * hourmody +
-                                                  dvdz[i3+5] * hourmodz );
+//          hourgam[7][i1] = gamma[i1][7] -  volinv*(dvdx[i3+7] * hourmodx +
+//                                                   dvdy[i3+7] * hourmody +
+//                                                   dvdz[i3+7] * hourmodz );
 
-         hourgam[6][i1] = gamma[i1][6] -  volinv*(dvdx[i3+6] * hourmodx +
-                                                  dvdy[i3+6] * hourmody +
-                                                  dvdz[i3+6] * hourmodz );
+//       }
 
-         hourgam[7][i1] = gamma[i1][7] -  volinv*(dvdx[i3+7] * hourmodx +
-                                                  dvdy[i3+7] * hourmody +
-                                                  dvdz[i3+7] * hourmodz );
+//       /* compute forces */
+//       /* store forces into h arrays (force arrays) */
 
-      }
+//       // ss1=domain.ss(i2);
+//       ss1=ss[i2];
 
-      /* compute forces */
-      /* store forces into h arrays (force arrays) */
+//       // mass1=domain.elemMass(i2);
+//       mass1=elemMass[i2];
+//       volume13=CBRT(determ[i2]);
 
-      // ss1=domain.ss(i2);
-      ss1=ss[i2];
+//       Index_t n0si2 = elemToNode[0];
+//       Index_t n1si2 = elemToNode[1];
+//       Index_t n2si2 = elemToNode[2];
+//       Index_t n3si2 = elemToNode[3];
+//       Index_t n4si2 = elemToNode[4];
+//       Index_t n5si2 = elemToNode[5];
+//       Index_t n6si2 = elemToNode[6];
+//       Index_t n7si2 = elemToNode[7];
 
-      // mass1=domain.elemMass(i2);
-      mass1=elemMass[i2];
-      volume13=CBRT(determ[i2]);
+//       xd1[0] = xd[n0si2];
+//       xd1[1] = xd[n1si2];
+//       xd1[2] = xd[n2si2];
+//       xd1[3] = xd[n3si2];
+//       xd1[4] = xd[n4si2];
+//       xd1[5] = xd[n5si2];
+//       xd1[6] = xd[n6si2];
+//       xd1[7] = xd[n7si2];
 
-      Index_t n0si2 = elemToNode[0];
-      Index_t n1si2 = elemToNode[1];
-      Index_t n2si2 = elemToNode[2];
-      Index_t n3si2 = elemToNode[3];
-      Index_t n4si2 = elemToNode[4];
-      Index_t n5si2 = elemToNode[5];
-      Index_t n6si2 = elemToNode[6];
-      Index_t n7si2 = elemToNode[7];
+//       yd1[0] = yd[n0si2];
+//       yd1[1] = yd[n1si2];
+//       yd1[2] = yd[n2si2];
+//       yd1[3] = yd[n3si2];
+//       yd1[4] = yd[n4si2];
+//       yd1[5] = yd[n5si2];
+//       yd1[6] = yd[n6si2];
+//       yd1[7] = yd[n7si2];
 
-      xd1[0] = xd[n0si2];
-      xd1[1] = xd[n1si2];
-      xd1[2] = xd[n2si2];
-      xd1[3] = xd[n3si2];
-      xd1[4] = xd[n4si2];
-      xd1[5] = xd[n5si2];
-      xd1[6] = xd[n6si2];
-      xd1[7] = xd[n7si2];
+//       zd1[0] = zd[n0si2];
+//       zd1[1] = zd[n1si2];
+//       zd1[2] = zd[n2si2];
+//       zd1[3] = zd[n3si2];
+//       zd1[4] = zd[n4si2];
+//       zd1[5] = zd[n5si2];
+//       zd1[6] = zd[n6si2];
+//       zd1[7] = zd[n7si2];
 
-      yd1[0] = yd[n0si2];
-      yd1[1] = yd[n1si2];
-      yd1[2] = yd[n2si2];
-      yd1[3] = yd[n3si2];
-      yd1[4] = yd[n4si2];
-      yd1[5] = yd[n5si2];
-      yd1[6] = yd[n6si2];
-      yd1[7] = yd[n7si2];
+//       coefficient = - hourg * Real_t(0.01) * ss1 * mass1 / volume13;
 
-      zd1[0] = zd[n0si2];
-      zd1[1] = zd[n1si2];
-      zd1[2] = zd[n2si2];
-      zd1[3] = zd[n3si2];
-      zd1[4] = zd[n4si2];
-      zd1[5] = zd[n5si2];
-      zd1[6] = zd[n6si2];
-      zd1[7] = zd[n7si2];
+//       CalcElemFBHourglassForce(xd1,yd1,zd1,
+//                       hourgam,
+//                       coefficient, hgfx, hgfy, hgfz);
 
-      coefficient = - hourg * Real_t(0.01) * ss1 * mass1 / volume13;
+//       // With the threaded version, we write into local arrays per elem
+//       // so we don't have to worry about race conditions
+//       if (numthreads > 1) {
+//          fx_local = &fx_elem[i3] ;
+//          fx_local[0] = hgfx[0];
+//          fx_local[1] = hgfx[1];
+//          fx_local[2] = hgfx[2];
+//          fx_local[3] = hgfx[3];
+//          fx_local[4] = hgfx[4];
+//          fx_local[5] = hgfx[5];
+//          fx_local[6] = hgfx[6];
+//          fx_local[7] = hgfx[7];
 
-      CalcElemFBHourglassForce(xd1,yd1,zd1,
-                      hourgam,
-                      coefficient, hgfx, hgfy, hgfz);
+//          fy_local = &fy_elem[i3] ;
+//          fy_local[0] = hgfy[0];
+//          fy_local[1] = hgfy[1];
+//          fy_local[2] = hgfy[2];
+//          fy_local[3] = hgfy[3];
+//          fy_local[4] = hgfy[4];
+//          fy_local[5] = hgfy[5];
+//          fy_local[6] = hgfy[6];
+//          fy_local[7] = hgfy[7];
 
-      // With the threaded version, we write into local arrays per elem
-      // so we don't have to worry about race conditions
-      if (numthreads > 1) {
-         fx_local = &fx_elem[i3] ;
-         fx_local[0] = hgfx[0];
-         fx_local[1] = hgfx[1];
-         fx_local[2] = hgfx[2];
-         fx_local[3] = hgfx[3];
-         fx_local[4] = hgfx[4];
-         fx_local[5] = hgfx[5];
-         fx_local[6] = hgfx[6];
-         fx_local[7] = hgfx[7];
+//          fz_local = &fz_elem[i3] ;
+//          fz_local[0] = hgfz[0];
+//          fz_local[1] = hgfz[1];
+//          fz_local[2] = hgfz[2];
+//          fz_local[3] = hgfz[3];
+//          fz_local[4] = hgfz[4];
+//          fz_local[5] = hgfz[5];
+//          fz_local[6] = hgfz[6];
+//          fz_local[7] = hgfz[7];
+//       }
+//       else {
+//          // domain.fx(n0si2) += hgfx[0];
+//          // domain.fy(n0si2) += hgfy[0];
+//          // domain.fz(n0si2) += hgfz[0];
 
-         fy_local = &fy_elem[i3] ;
-         fy_local[0] = hgfy[0];
-         fy_local[1] = hgfy[1];
-         fy_local[2] = hgfy[2];
-         fy_local[3] = hgfy[3];
-         fy_local[4] = hgfy[4];
-         fy_local[5] = hgfy[5];
-         fy_local[6] = hgfy[6];
-         fy_local[7] = hgfy[7];
+//          // domain.fx(n1si2) += hgfx[1];
+//          // domain.fy(n1si2) += hgfy[1];
+//          // domain.fz(n1si2) += hgfz[1];
 
-         fz_local = &fz_elem[i3] ;
-         fz_local[0] = hgfz[0];
-         fz_local[1] = hgfz[1];
-         fz_local[2] = hgfz[2];
-         fz_local[3] = hgfz[3];
-         fz_local[4] = hgfz[4];
-         fz_local[5] = hgfz[5];
-         fz_local[6] = hgfz[6];
-         fz_local[7] = hgfz[7];
-      }
-      else {
-         // domain.fx(n0si2) += hgfx[0];
-         // domain.fy(n0si2) += hgfy[0];
-         // domain.fz(n0si2) += hgfz[0];
+//          // domain.fx(n2si2) += hgfx[2];
+//          // domain.fy(n2si2) += hgfy[2];
+//          // domain.fz(n2si2) += hgfz[2];
 
-         // domain.fx(n1si2) += hgfx[1];
-         // domain.fy(n1si2) += hgfy[1];
-         // domain.fz(n1si2) += hgfz[1];
+//          // domain.fx(n3si2) += hgfx[3];
+//          // domain.fy(n3si2) += hgfy[3];
+//          // domain.fz(n3si2) += hgfz[3];
 
-         // domain.fx(n2si2) += hgfx[2];
-         // domain.fy(n2si2) += hgfy[2];
-         // domain.fz(n2si2) += hgfz[2];
+//          // domain.fx(n4si2) += hgfx[4];
+//          // domain.fy(n4si2) += hgfy[4];
+//          // domain.fz(n4si2) += hgfz[4];
 
-         // domain.fx(n3si2) += hgfx[3];
-         // domain.fy(n3si2) += hgfy[3];
-         // domain.fz(n3si2) += hgfz[3];
+//          // domain.fx(n5si2) += hgfx[5];
+//          // domain.fy(n5si2) += hgfy[5];
+//          // domain.fz(n5si2) += hgfz[5];
 
-         // domain.fx(n4si2) += hgfx[4];
-         // domain.fy(n4si2) += hgfy[4];
-         // domain.fz(n4si2) += hgfz[4];
+//          // domain.fx(n6si2) += hgfx[6];
+//          // domain.fy(n6si2) += hgfy[6];
+//          // domain.fz(n6si2) += hgfz[6];
 
-         // domain.fx(n5si2) += hgfx[5];
-         // domain.fy(n5si2) += hgfy[5];
-         // domain.fz(n5si2) += hgfz[5];
+//          // domain.fx(n7si2) += hgfx[7];
+//          // domain.fy(n7si2) += hgfy[7];
+//          // domain.fz(n7si2) += hgfz[7];
+//          m_fx[n0si2] += hgfx[0];
+//          m_fy[n0si2] += hgfy[0];
+//          m_fz[n0si2] += hgfz[0];
 
-         // domain.fx(n6si2) += hgfx[6];
-         // domain.fy(n6si2) += hgfy[6];
-         // domain.fz(n6si2) += hgfz[6];
+//          m_fx[n1si2] += hgfx[1];
+//          m_fy[n1si2] += hgfy[1];
+//          m_fz[n1si2] += hgfz[1];
 
-         // domain.fx(n7si2) += hgfx[7];
-         // domain.fy(n7si2) += hgfy[7];
-         // domain.fz(n7si2) += hgfz[7];
-         m_fx[n0si2] += hgfx[0];
-         m_fy[n0si2] += hgfy[0];
-         m_fz[n0si2] += hgfz[0];
+//          m_fx[n2si2] += hgfx[2];
+//          m_fy[n2si2] += hgfy[2];
+//          m_fz[n2si2] += hgfz[2];
 
-         m_fx[n1si2] += hgfx[1];
-         m_fy[n1si2] += hgfy[1];
-         m_fz[n1si2] += hgfz[1];
+//          m_fx[n3si2] += hgfx[3];
+//          m_fy[n3si2] += hgfy[3];
+//          m_fz[n3si2] += hgfz[3];
 
-         m_fx[n2si2] += hgfx[2];
-         m_fy[n2si2] += hgfy[2];
-         m_fz[n2si2] += hgfz[2];
+//          m_fx[n4si2] += hgfx[4];
+//          m_fy[n4si2] += hgfy[4];
+//          m_fz[n4si2] += hgfz[4];
 
-         m_fx[n3si2] += hgfx[3];
-         m_fy[n3si2] += hgfy[3];
-         m_fz[n3si2] += hgfz[3];
+//          m_fx[n5si2] += hgfx[5];
+//          m_fy[n5si2] += hgfy[5];
+//          m_fz[n5si2] += hgfz[5];
 
-         m_fx[n4si2] += hgfx[4];
-         m_fy[n4si2] += hgfy[4];
-         m_fz[n4si2] += hgfz[4];
+//          m_fx[n6si2] += hgfx[6];
+//          m_fy[n6si2] += hgfy[6];
+//          m_fz[n6si2] += hgfz[6];
 
-         m_fx[n5si2] += hgfx[5];
-         m_fy[n5si2] += hgfy[5];
-         m_fz[n5si2] += hgfz[5];
+//          m_fx[n7si2] += hgfx[7];
+//          m_fy[n7si2] += hgfy[7];
+//          m_fz[n7si2] += hgfz[7];
+//       }
+//    }
 
-         m_fx[n6si2] += hgfx[6];
-         m_fy[n6si2] += hgfy[6];
-         m_fz[n6si2] += hgfz[6];
-
-         m_fx[n7si2] += hgfx[7];
-         m_fy[n7si2] += hgfy[7];
-         m_fz[n7si2] += hgfz[7];
-      }
-   }
-
-   if (numthreads > 1) {
-     // Collect the data from the local arrays into the final force arrays
-#pragma omp parallel for firstprivate(numNode)
-      for( Index_t gnode=0 ; gnode<numNode ; ++gnode )
-      {
-         Index_t count = domain.nodeElemCount(gnode) ;
-         Index_t *cornerList = domain.nodeElemCornerList(gnode) ;
-         Real_t fx_tmp = Real_t(0.0) ;
-         Real_t fy_tmp = Real_t(0.0) ;
-         Real_t fz_tmp = Real_t(0.0) ;
-         for (Index_t i=0 ; i < count ; ++i) {
-            Index_t ielem = cornerList[i] ;
-            fx_tmp += fx_elem[ielem] ;
-            fy_tmp += fy_elem[ielem] ;
-            fz_tmp += fz_elem[ielem] ;
-         }
-         // domain.fx(gnode) += fx_tmp ;
-         // domain.fy(gnode) += fy_tmp ;
-         // domain.fz(gnode) += fz_tmp ;
-         m_fx[gnode] += fx_tmp ;
-         m_fy[gnode] += fy_tmp ;
-         m_fz[gnode] += fz_tmp ;
-      }
-      Release(&fz_elem) ;
-      Release(&fy_elem) ;
-      Release(&fx_elem) ;
-   }
+//    if (numthreads > 1) {
+//      // Collect the data from the local arrays into the final force arrays
+// #pragma omp parallel for firstprivate(numNode)
+//       for( Index_t gnode=0 ; gnode<numNode ; ++gnode )
+//       {
+//          Index_t count = domain.nodeElemCount(gnode) ;
+//          Index_t *cornerList = domain.nodeElemCornerList(gnode) ;
+//          Real_t fx_tmp = Real_t(0.0) ;
+//          Real_t fy_tmp = Real_t(0.0) ;
+//          Real_t fz_tmp = Real_t(0.0) ;
+//          for (Index_t i=0 ; i < count ; ++i) {
+//             Index_t ielem = cornerList[i] ;
+//             fx_tmp += fx_elem[ielem] ;
+//             fy_tmp += fy_elem[ielem] ;
+//             fz_tmp += fz_elem[ielem] ;
+//          }
+//          // domain.fx(gnode) += fx_tmp ;
+//          // domain.fy(gnode) += fy_tmp ;
+//          // domain.fz(gnode) += fz_tmp ;
+//          m_fx[gnode] += fx_tmp ;
+//          m_fy[gnode] += fy_tmp ;
+//          m_fz[gnode] += fz_tmp ;
+//       }
+//       Release(&fz_elem) ;
+//       Release(&fy_elem) ;
+//       Release(&fx_elem) ;
+//    }
 }
 
 /******************************************/
@@ -1788,50 +1856,71 @@ void CalcHourglassControlForElems(Domain& domain,
    // Index_t numElem = domain.numElem() ;
    Index_t numElem = m_numElem ;
    Index_t numElem8 = numElem * 8 ;
-   Real_t *dvdx = Allocate<Real_t>(numElem8) ;
-   Real_t *dvdy = Allocate<Real_t>(numElem8) ;
-   Real_t *dvdz = Allocate<Real_t>(numElem8) ;
-   Real_t *x8n  = Allocate<Real_t>(numElem8) ;
-   Real_t *y8n  = Allocate<Real_t>(numElem8) ;
-   Real_t *z8n  = Allocate<Real_t>(numElem8) ;
+   // Real_t *dvdx = Allocate<Real_t>(numElem8) ;
+   // Real_t *dvdy = Allocate<Real_t>(numElem8) ;
+   // Real_t *dvdz = Allocate<Real_t>(numElem8) ;
+   // Real_t *x8n  = Allocate<Real_t>(numElem8) ;
+   // Real_t *y8n  = Allocate<Real_t>(numElem8) ;
+   // Real_t *z8n  = Allocate<Real_t>(numElem8) ;
 
-   /* start loop over elements */
-#pragma omp parallel for firstprivate(numElem)
-   for (Index_t i=0 ; i<numElem ; ++i){
-      Real_t  x1[8],  y1[8],  z1[8] ;
-      Real_t pfx[8], pfy[8], pfz[8] ;
+   // op_dat p_dvdx = op_decl_dat_temp(elems, 8, "double",dvdx, "dvdx");
+   // op_dat p_dvdy = op_decl_dat_temp(elems, 8, "double",dvdy, "dvdy");
+   // op_dat p_dvdz = op_decl_dat_temp(elems, 8, "double",dvdz, "dvdz");
+   // op_dat p_x8n = op_decl_dat_temp(elems, 8, "double",x8n, "x8n");
+   // op_dat p_y8n = op_decl_dat_temp(elems, 8, "double",y8n, "y8n");
+   // op_dat p_z8n = op_decl_dat_temp(elems, 8, "double",z8n, "z8n");
 
-      // Index_t* elemToNode = domain.nodelist(i);
-      Index_t* elemToNode = &nodelist[i*Index_t(8)];
-      CollectDomainNodesToElemNodes(domain, elemToNode, x1, y1, z1);
+   op_par_loop(CalcVolumeDerivatives, "CalcVolumeDerivatives", elems,
+               op_arg_dat(p_x, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_y, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_z, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_z, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_z, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_dvdx, -1, OP_ID, 8, "double", OP_RW), 
+               op_arg_dat(p_dvdy, -1, OP_ID, 8, "double", OP_RW), 
+               op_arg_dat(p_dvdz, -1, OP_ID, 8, "double", OP_RW), 
+               op_arg_dat(p_x8n, -1, OP_ID, 8, "double", OP_WRITE), 
+               op_arg_dat(p_y8n, -1, OP_ID, 8, "double", OP_WRITE), 
+               op_arg_dat(p_z8n, -1, OP_ID, 8, "double", OP_WRITE), 
+               op_arg_dat(p_v, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_determ, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_volo, -1, OP_ID, 1, "double", OP_READ)
+               );
+//    /* start loop over elements */
+// #pragma omp parallel for firstprivate(numElem)
+//    for (Index_t i=0 ; i<numElem ; ++i){
+//       Real_t  x1[8],  y1[8],  z1[8] ;
+//       Real_t pfx[8], pfy[8], pfz[8] ;
 
-      CalcElemVolumeDerivative(pfx, pfy, pfz, x1, y1, z1);
+//       // Index_t* elemToNode = domain.nodelist(i);
+//       Index_t* elemToNode = &nodelist[i*Index_t(8)];
+//       CollectDomainNodesToElemNodes(domain, elemToNode, x1, y1, z1);
 
-      /* load into temporary storage for FB Hour Glass control */
-      for(Index_t ii=0;ii<8;++ii){
-         Index_t jj=8*i+ii;
+//       CalcElemVolumeDerivative(pfx, pfy, pfz, x1, y1, z1);
 
-         dvdx[jj] = pfx[ii];
-         dvdy[jj] = pfy[ii];
-         dvdz[jj] = pfz[ii];
-         x8n[jj]  = x1[ii];
-         y8n[jj]  = y1[ii];
-         z8n[jj]  = z1[ii];
-      }
+//       /* load into temporary storage for FB Hour Glass control */
+//       for(Index_t ii=0;ii<8;++ii){
+//          Index_t jj=8*i+ii;
 
-      // determ[i] = domain.volo(i) * domain.v(i);
-      determ[i] = volo[i] * v[i];
+//          dvdx[jj] = pfx[ii];
+//          dvdy[jj] = pfy[ii];
+//          dvdz[jj] = pfz[ii];
+//          x8n[jj]  = x1[ii];
+//          y8n[jj]  = y1[ii];
+//          z8n[jj]  = z1[ii];
+//       }
 
-      /* Do a check for negative volumes */
-      // if ( domain.v(i) <= Real_t(0.0) ) {
-      if ( v[i] <= Real_t(0.0) ) {
-#if USE_MPI         
-         MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
-#else
-         exit(VolumeError);
-#endif
-      }
-   }
+//       // determ[i] = domain.volo(i) * domain.v(i);
+//       determ[i] = volo[i] * v[i];
+
+//       /* Do a check for negative volumes */
+//       // if ( domain.v(i) <= Real_t(0.0) ) {
+//       if ( v[i] <= Real_t(0.0) ) {
+// #if USE_MPI         
+//          MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
+// #else
+//          exit(VolumeError);
+// #endif
+//       }
+//    }
 
    if ( hgcoef > Real_t(0.) ) {
       CalcFBHourglassForceForElems( domain,
@@ -1840,12 +1929,18 @@ void CalcHourglassControlForElems(Domain& domain,
                                     hgcoef, numElem, m_numNode) ;
    }
 
-   Release(&z8n) ;
-   Release(&y8n) ;
-   Release(&x8n) ;
-   Release(&dvdz) ;
-   Release(&dvdy) ;
-   Release(&dvdx) ;
+   // op_free_dat_temp(p_dvdx);
+   // op_free_dat_temp(p_dvdy);
+   // op_free_dat_temp(p_dvdz);
+   // op_free_dat_temp(p_x8n);
+   // op_free_dat_temp(p_y8n);
+   // op_free_dat_temp(p_z8n);
+   // Release(&z8n) ;
+   // Release(&y8n) ;
+   // Release(&x8n) ;
+   // Release(&dvdz) ;
+   // Release(&dvdy) ;
+   // Release(&dvdx) ;
 
    return ;
 }
@@ -1853,7 +1948,7 @@ void CalcHourglassControlForElems(Domain& domain,
 /******************************************/
 
 static inline
-void CCalcVolumeForceForElems(Domain& domain)
+void CalcVolumeForceForElems(Domain& domain)
 {
    // Index_t numElem = domain.numElem() ;
    Index_t numElem = m_numElem ;
@@ -1883,17 +1978,19 @@ void CCalcVolumeForceForElems(Domain& domain)
                                m_numNode) ;
 
       // check for negative element volume
-#pragma omp parallel for firstprivate(numElem)
-      for ( Index_t k=0 ; k<numElem ; ++k ) {      
-         if (determ[k] <= Real_t(0.0)) {
-#if USE_MPI            
-            MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
-#else
-         std::cout<<"After volume check\n";
-            exit(VolumeError);
-#endif
-         }
-      }
+      op_par_loop(CheckForNegativeElementVolume, "CheckForNegativeElementVolume", elems,
+                  op_arg_dat(p_determ, -1, OP_ID, 1, "double", OP_READ));
+// #pragma omp parallel for firstprivate(numElem)
+//       for ( Index_t k=0 ; k<numElem ; ++k ) {      
+//          if (determ[k] <= Real_t(0.0)) {
+// #if USE_MPI            
+//             MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
+// #else
+//          std::cout<<"After volume check\n";
+//             exit(VolumeError);
+// #endif
+//          }
+//       }
 
       CalcHourglassControlForElems(domain, determ, hgcoef) ;
 
@@ -1956,17 +2053,21 @@ static inline void CalcForceForNodes(Domain& domain)
 
 static inline
 void CalcAccelerationForNodes(Domain &domain, Index_t numNode)
-{
-   
-#pragma omp parallel for firstprivate(numNode)
-   for (Index_t i = 0; i < numNode; ++i) {
-      // domain.xdd(i) = domain.fx(i) / domain.nodalMass(i);
-      // domain.ydd(i) = domain.fy(i) / domain.nodalMass(i);
-      // domain.zdd(i) = domain.fz(i) / domain.nodalMass(i);
-      xdd[i] = m_fx[i] / nodalMass[i];
-      ydd[i] = m_fy[i] / nodalMass[i];
-      zdd[i] = m_fz[i] / nodalMass[i];
-   }
+{   
+   op_par_loop(CalcAccelForNodes, "CalcAccelForNodes", nodes,
+               op_arg_dat(p_xdd, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_ydd, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_zdd, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_fx, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_fy, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_fz, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_nodalMass, -1, OP_ID, 1, "double", OP_READ)
+               );
+// #pragma omp parallel for firstprivate(numNode)
+//    for (Index_t i = 0; i < numNode; ++i) {
+//       // domain.xdd(i) = domain.fx(i) / domain.nodalMass(i);
+//       // domain.ydd(i) = domain.fy(i) / domain.nodalMass(i);
+//       // domain.zdd(i) = domain.fz(i) / domain.nodalMass(i);
+//       xdd[i] = m_fx[i] / nodalMass[i];
+//       ydd[i] = m_fy[i] / nodalMass[i];
+//       zdd[i] = m_fz[i] / nodalMass[i];
+   // }
 }
 
 /******************************************/
@@ -2006,33 +2107,37 @@ void ApplyAccelerationBoundaryConditionsForNodes(Domain& domain)
 /******************************************/
 
 static inline
-void CalcVelocityForNodes(Domain &domain, const Real_t dt, const Real_t u_cut,
+void CalcVelocityForNodes(Domain &domain,const Real_t dt, const Real_t u_cut,
                           Index_t numNode)
 {
+   op_par_loop(CalcVeloForNodes, "CalcVeloForNodes", nodes,
+               op_arg_dat(p_xd, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_yd, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_zd, -1, OP_ID, 1, "double", OP_WRITE), 
+               op_arg_dat(p_xdd, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_ydd, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_zdd, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_gbl(&dt, 1, "double", OP_READ) 
+               );
+// #pragma omp parallel for firstprivate(numNode)
+//    for ( Index_t i = 0 ; i < numNode ; ++i )
+//    {
+//      Real_t xdtmp, ydtmp, zdtmp ;
 
-#pragma omp parallel for firstprivate(numNode)
-   for ( Index_t i = 0 ; i < numNode ; ++i )
-   {
-     Real_t xdtmp, ydtmp, zdtmp ;
+//    //   xdtmp = domain.xd(i) + domain.xdd(i) * dt ;
+//      xdtmp = xd[i] + xdd[i] * dt ;
+//      if( FABS(xdtmp) < u_cut ) xdtmp = Real_t(0.0);
+//    //   domain.xd(i) = xdtmp ;
+//      xd[i] = xdtmp ;
 
-   //   xdtmp = domain.xd(i) + domain.xdd(i) * dt ;
-     xdtmp = xd[i] + xdd[i] * dt ;
-     if( FABS(xdtmp) < u_cut ) xdtmp = Real_t(0.0);
-   //   domain.xd(i) = xdtmp ;
-     xd[i] = xdtmp ;
+//    //   ydtmp = domain.yd(i) + domain.ydd(i) * dt ;
+//      ydtmp = yd[i] + ydd[i] * dt ;
+//      if( FABS(ydtmp) < u_cut ) ydtmp = Real_t(0.0);
+//    //   domain.yd(i) = ydtmp ;
+//      yd[i] = ydtmp ;
 
-   //   ydtmp = domain.yd(i) + domain.ydd(i) * dt ;
-     ydtmp = yd[i] + ydd[i] * dt ;
-     if( FABS(ydtmp) < u_cut ) ydtmp = Real_t(0.0);
-   //   domain.yd(i) = ydtmp ;
-     yd[i] = ydtmp ;
-
-   //   zdtmp = domain.zd(i) + domain.zdd(i) * dt ;
-     zdtmp = zd[i] + zdd[i] * dt ;
-     if( FABS(zdtmp) < u_cut ) zdtmp = Real_t(0.0);
-   //   domain.zd(i) = zdtmp ;
-     zd[i] = zdtmp ;
-   }
+//    //   zdtmp = domain.zd(i) + domain.zdd(i) * dt ;
+//      zdtmp = zd[i] + zdd[i] * dt ;
+//      if( FABS(zdtmp) < u_cut ) zdtmp = Real_t(0.0);
+//    //   domain.zd(i) = zdtmp ;
+//      zd[i] = zdtmp ;
+//    }
 }
 
 /******************************************/
@@ -2040,16 +2145,22 @@ void CalcVelocityForNodes(Domain &domain, const Real_t dt, const Real_t u_cut,
 static inline
 void CalcPositionForNodes(Domain &domain, const Real_t dt, Index_t numNode)
 {
-#pragma omp parallel for firstprivate(numNode)
-   for ( Index_t i = 0 ; i < numNode ; ++i )
-   {
-   //   domain.x(i) += domain.xd(i) * dt ;
-     x[i] += xd[i] * dt ;
-   //   domain.y(i) += domain.yd(i) * dt ;
-     y[i] += yd[i] * dt ;
-   //   domain.z(i) += domain.zd(i) * dt ;
-     z[i] += zd[i] * dt ;
-   }
+
+   op_par_loop(CalcPosForNodes, "CalcPosForNodes", nodes,
+               op_arg_dat(p_x, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_y, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_z, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_xd, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_yd, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_zd, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_gbl(&dt, 1, "double", OP_READ)
+               );
+// #pragma omp parallel for firstprivate(numNode)
+//    for ( Index_t i = 0 ; i < numNode ; ++i )
+//    {
+//    //   domain.x(i) += domain.xd(i) * dt ;
+//      x[i] += xd[i] * dt ;
+//    //   domain.y(i) += domain.yd(i) * dt ;
+//      y[i] += yd[i] * dt ;
+//    //   domain.z(i) += domain.zd(i) * dt ;
+//      z[i] += zd[i] * dt ;
+//    }
 }
 
 /******************************************/
@@ -2341,79 +2452,95 @@ void CalcElemVelocityGradient( const Real_t* const xvel,
 
 //static inline
 void CalcKinematicsForElems( Domain &domain,
-                             Real_t deltaTime, Index_t numElem )
+                             Real_t deltaTime, Index_t numElem, op_dat p_dxx, op_dat p_dyy, op_dat p_dzz )
 {
 
-  // loop over all elements
-#pragma omp parallel for firstprivate(numElem, deltaTime)
-  for( Index_t k=0 ; k<numElem ; ++k )
-  {
-    Real_t B[3][8] ; /** shape function derivatives */
-    Real_t D[6] ;
-    Real_t x_local[8] ;
-    Real_t y_local[8] ;
-    Real_t z_local[8] ;
-    Real_t xd_local[8] ;
-    Real_t yd_local[8] ;
-    Real_t zd_local[8] ;
-    Real_t detJ = Real_t(0.0) ;
+   op_par_loop(CalcKinematicsForElem, "CalcKinematicsForElem", elems,
+               op_arg_dat(p_x, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_y, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_z, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_z, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_z, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_xd, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_xd, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_xd, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_yd, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_yd, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_yd, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_zd, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_zd, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_zd, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 7, p_nodelist, 1, "double", OP_READ),
+               op_arg_dat(p_dxx, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_dyy, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_dzz, -1, OP_ID, 1, "double", OP_WRITE), 
+               op_arg_dat(p_vnew, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_volo, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_delv, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_v, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_arealg, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_gbl(&deltaTime, 1, "double", OP_READ)
+   );
 
-    Real_t volume ;
-    Real_t relativeVolume ;
-   //  const Index_t* const elemToNode = domain.nodelist(k) ;
-    const Index_t* const elemToNode = &nodelist[k*Index_t(8)] ;
+// //   // loop over all elements
+// #pragma omp parallel for firstprivate(numElem, deltaTime)
+//   for( Index_t k=0 ; k<numElem ; ++k )
+//   {
+//     Real_t B[3][8] ; /** shape function derivatives */
+//     Real_t D[6] ;
+//     Real_t x_local[8] ;
+//     Real_t y_local[8] ;
+//     Real_t z_local[8] ;
+//     Real_t xd_local[8] ;
+//     Real_t yd_local[8] ;
+//     Real_t zd_local[8] ;
+//     Real_t detJ = Real_t(0.0) ;
 
-    // get nodal coordinates from global arrays and copy into local arrays.
-    CollectDomainNodesToElemNodes(domain, elemToNode, x_local, y_local, z_local);
+//     Real_t volume ;
+//     Real_t relativeVolume ;
+//    //  const Index_t* const elemToNode = domain.nodelist(k) ;
+//     const Index_t* const elemToNode = &nodelist[k*Index_t(8)] ;
 
-    // volume calculations
-    volume = CalcElemVolume(x_local, y_local, z_local );
-    relativeVolume = volume / volo[k] ;
-   //  domain.vnew(k) = relativeVolume ;
-    vnew[k] = relativeVolume ;
-   //  domain.delv(k) = relativeVolume - domain.v(k) ;
-    delv[k] = relativeVolume - v[k] ;
+//     // get nodal coordinates from global arrays and copy into local arrays.
+//     CollectDomainNodesToElemNodes(domain, elemToNode, x_local, y_local, z_local);
 
-    // set characteristic length
-   //  domain.arealg(k) = CalcElemCharacteristicLength(x_local, y_local, z_local,
-   //                                           volume);
-    arealg[k] = CalcElemCharacteristicLength(x_local, y_local, z_local,
-                                             volume);
+//     // volume calculations
+//     volume = CalcElemVolume(x_local, y_local, z_local );
+//     relativeVolume = volume / volo[k] ;
+//    //  domain.vnew(k) = relativeVolume ;
+//     vnew[k] = relativeVolume ;
+//    //  domain.delv(k) = relativeVolume - domain.v(k) ;
+//     delv[k] = relativeVolume - v[k] ;
 
-    // get nodal velocities from global array and copy into local arrays.
-    for( Index_t lnode=0 ; lnode<8 ; ++lnode )
-    {
-      Index_t gnode = elemToNode[lnode];
-      // xd_local[lnode] = domain.xd(gnode);
-      xd_local[lnode] = xd[gnode];
-      // yd_local[lnode] = domain.yd(gnode);
-      yd_local[lnode] = yd[gnode];
-      // zd_local[lnode] = domain.zd(gnode);
-      zd_local[lnode] = zd[gnode];
-    }
+//     // set characteristic length
+//    //  domain.arealg(k) = CalcElemCharacteristicLength(x_local, y_local, z_local,
+//    //                                           volume);
+//     arealg[k] = CalcElemCharacteristicLength(x_local, y_local, z_local,
+//                                              volume);
 
-    Real_t dt2 = Real_t(0.5) * deltaTime;
-    for ( Index_t j=0 ; j<8 ; ++j )
-    {
-       x_local[j] -= dt2 * xd_local[j];
-       y_local[j] -= dt2 * yd_local[j];
-       z_local[j] -= dt2 * zd_local[j];
-    }
+//     // get nodal velocities from global array and copy into local arrays.
+//     for( Index_t lnode=0 ; lnode<8 ; ++lnode )
+//     {
+//       Index_t gnode = elemToNode[lnode];
+//       // xd_local[lnode] = domain.xd(gnode);
+//       xd_local[lnode] = xd[gnode];
+//       // yd_local[lnode] = domain.yd(gnode);
+//       yd_local[lnode] = yd[gnode];
+//       // zd_local[lnode] = domain.zd(gnode);
+//       zd_local[lnode] = zd[gnode];
+//     }
 
-    CalcElemShapeFunctionDerivatives( x_local, y_local, z_local,
-                                      B, &detJ );
+//     Real_t dt2 = Real_t(0.5) * deltaTime;
+//     for ( Index_t j=0 ; j<8 ; ++j )
+//     {
+//        x_local[j] -= dt2 * xd_local[j];
+//        y_local[j] -= dt2 * yd_local[j];
+//        z_local[j] -= dt2 * zd_local[j];
+//     }
 
-    CalcElemVelocityGradient( xd_local, yd_local, zd_local,
-                               B, detJ, D );
+//     CalcElemShapeFunctionDerivatives( x_local, y_local, z_local,
+//                                       B, &detJ );
 
-    // put velocity gradient quantities into their global arrays.
-   //  domain.dxx(k) = D[0];
-   //  domain.dyy(k) = D[1];
-   //  domain.dzz(k) = D[2];
-    dxx[k] = D[0];
-    dyy[k] = D[1];
-    dzz[k] = D[2];
-  }
+//     CalcElemVelocityGradient( xd_local, yd_local, zd_local,
+//                                B, detJ, D );
+
+//     // put velocity gradient quantities into their global arrays.
+//    //  domain.dxx(k) = D[0];
+//    //  domain.dyy(k) = D[1];
+//    //  domain.dzz(k) = D[2];
+//     dxx[k] = D[0];
+//     dyy[k] = D[1];
+//     dzz[k] = D[2];
+//   }
 }
 
 /******************************************/
@@ -2428,42 +2555,54 @@ void CalcLagrangeElements(Domain& domain)
       const Real_t deltatime = m_deltatime ;
 
       // domain.AllocateStrains(numElem);
-      AllocStrains(numElem);
+      // AllocStrains(numElem);
+      // op_dat p_dxx = op_decl_dat_temp(elems, 1, "double", dxx, "p_dxx");
+      // op_dat p_dyy = op_decl_dat_temp(elems, 1, "double", dyy, "p_dyy");
+      // op_dat p_dzz = op_decl_dat_temp(elems, 1, "double", dzz, "p_dzz");
 
-      CalcKinematicsForElems(domain, deltatime, numElem) ;
+      CalcKinematicsForElems(domain, deltatime, numElem, p_dxx, p_dyy, p_dzz) ;
 
+      op_par_loop(CalcLagrangeElemRemaining, "CalcLagrangeElemRemaining", elems,
+                  op_arg_dat(p_dxx, -1, OP_ID, 1, "double", OP_RW), op_arg_dat(p_dyy, -1, OP_ID, 1, "double", OP_RW), op_arg_dat(p_dzz, -1, OP_ID, 1, "double", OP_RW), 
+                  op_arg_dat(p_vdov, -1, OP_ID, 1, "double", OP_WRITE),
+                  op_arg_dat(p_vnew, -1, OP_ID, 1, "double", OP_READ)
+                  );
       // element loop to do some stuff not included in the elemlib function.
-#pragma omp parallel for firstprivate(numElem)
-      for ( Index_t k=0 ; k<numElem ; ++k )
-      {
-         // calc strain rate and apply as constraint (only done in FB element)
-         // Real_t vdov = domain.dxx(k) + domain.dyy(k) + domain.dzz(k) ;
-         Real_t vdov = dxx[k] + dyy[k] + dzz[k] ;
-         Real_t vdovthird = vdov/Real_t(3.0) ;
+// #pragma omp parallel for firstprivate(numElem)
+//       for ( Index_t k=0 ; k<numElem ; ++k )
+//       {
+//          // calc strain rate and apply as constraint (only done in FB element)
+//          // Real_t vdov = domain.dxx(k) + domain.dyy(k) + domain.dzz(k) ;
+//          Real_t vdov = dxx[k] + dyy[k] + dzz[k] ;
+//          Real_t vdovthird = vdov/Real_t(3.0) ;
 
-         // make the rate of deformation tensor deviatoric
-         // domain.vdov(k) = vdov ;
-         m_vdov[k] = vdov ;
-         // domain.dxx(k) -= vdovthird ;
-         // domain.dyy(k) -= vdovthird ;
-         // domain.dzz(k) -= vdovthird ;
-         dxx[k] -= vdovthird ;
-         dyy[k] -= vdovthird ;
-         dzz[k] -= vdovthird ;
+//          // make the rate of deformation tensor deviatoric
+//          // domain.vdov(k) = vdov ;
+//          m_vdov[k] = vdov ;
+//          // domain.dxx(k) -= vdovthird ;
+//          // domain.dyy(k) -= vdovthird ;
+//          // domain.dzz(k) -= vdovthird ;
 
-        // See if any volumes are negative, and take appropriate action.
-         // if (domain.vnew(k) <= Real_t(0.0))
-         if (vnew[k] <= Real_t(0.0))
-        {
-#if USE_MPI           
-           MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
-#else
-           exit(VolumeError);
-#endif
-        }
-      }
+//          dxx[k] -= vdovthird ;
+//          dyy[k] -= vdovthird ;
+//          dzz[k] -= vdovthird ;
+
+//         // See if any volumes are negative, and take appropriate action.
+//          // if (domain.vnew(k) <= Real_t(0.0))
+//          if (vnew[k] <= Real_t(0.0))
+//         {
+// #if USE_MPI           
+//            MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
+// #else
+//            exit(VolumeError);
+// #endif
+//         }
+//       }
       // domain.DeallocateStrains();
-      DeallocStrains();
+      // op_free_dat_temp(p_dxx);
+      // op_free_dat_temp(p_dyy);
+      // op_free_dat_temp(p_dzz);
+      // DeallocStrains();
    }
 }
 
@@ -2906,9 +3045,7 @@ void CalcQForElems(Domain& domain)
 
       CommMonoQ(domain) ;
 #endif      
-
       CalcMonotonicQForElems(domain);
-
       // Free up memory
       // domain.DeallocateGradients();
       DeallocGradients();
@@ -3712,6 +3849,7 @@ int main(int argc, char *argv[])
    nodes = op_decl_set(m_numNode, "nodes");
    elems = op_decl_set(m_numElem, "elems");
    symmetry = op_decl_set(edgeNodes*edgeNodes, "symmetries");
+   temp_vols = op_decl_set(m_numElem*8, "tempVols");
 
    p_nodelist = op_decl_map(elems, nodes, 8, nodelist, "nodelist");
    p_symmX = op_decl_map(nodes, symmetry, 1, symmX, "symmX");
@@ -3722,31 +3860,47 @@ int main(int argc, char *argv[])
    p_x = op_decl_dat(nodes, 1, "double", x, "p_x");
    p_y = op_decl_dat(nodes, 1, "double", y, "p_y");
    p_z = op_decl_dat(nodes, 1, "double", z, "p_z");
-   op_dat p_xd = op_decl_dat(nodes, 3, "double", xd, "p_xd");
-   op_dat p_xdd = op_decl_dat(nodes, 3, "double", xdd, "p_xdd");
+   p_xd = op_decl_dat(nodes, 1, "double", xd, "p_xd");
+   p_yd = op_decl_dat(nodes, 1, "double", yd, "p_yd");
+   p_zd = op_decl_dat(nodes, 1, "double", zd, "p_zd");
+   p_xdd = op_decl_dat(nodes, 1, "double", xdd, "p_xdd");
+   p_ydd = op_decl_dat(nodes, 1, "double", ydd, "p_ydd");
+   p_zdd = op_decl_dat(nodes, 1, "double", zdd, "p_zdd");
    p_fx = op_decl_dat(nodes, 1, "double", m_fx, "p_fx");
    p_fy = op_decl_dat(nodes, 1, "double", m_fy, "p_fy");
    p_fz = op_decl_dat(nodes, 1, "double", m_fz, "p_fz");
-   op_dat p_nodalMass = op_decl_dat(nodes, 3, "double", nodalMass, "p_nodalMass");
+
+   p_nodalMass = op_decl_dat(nodes, 1, "double", nodalMass, "p_nodalMass");
    // //Elem Centred
    op_dat p_e = op_decl_dat(elems, 1, "double", e, "p_e");
    p_p = op_decl_dat(elems, 1, "double", p, "p_p");
    p_q = op_decl_dat(elems, 1, "double", q, "p_q");
    op_dat p_ql = op_decl_dat(elems, 1, "double", ql, "p_ql");
    op_dat p_qq = op_decl_dat(elems, 1, "double", qq, "p_qq");
-   op_dat p_volo = op_decl_dat(elems, 1, "double", volo, "p_volo");
-   op_dat p_delv = op_decl_dat(elems, 1, "double", delv, "p_delv");
-   op_dat p_vdov = op_decl_dat(elems, 1, "double", m_vdov, "p_vdov");
-   op_dat p_arealg = op_decl_dat(elems, 1, "double", arealg, "p_arealg");
-   op_dat p_dxx = op_decl_dat(elems, 3, "double", dxx, "p_dxx");
+   p_v = op_decl_dat(elems, 1, "double", v, "p_v");
+   p_volo = op_decl_dat(elems, 1, "double", volo, "p_volo");
+   p_delv = op_decl_dat(elems, 1, "double", delv, "p_delv");
+   p_vdov = op_decl_dat(elems, 1, "double", m_vdov, "p_vdov");
+   p_arealg = op_decl_dat(elems, 1, "double", arealg, "p_arealg");
+
+   p_dxx = op_decl_dat(elems, 1, "double", dxx, "p_dxx");
+   p_dyy = op_decl_dat(elems, 1, "double", dyy, "p_dyy");
+   p_dzz = op_decl_dat(elems, 1, "double", dzz, "p_dzz");
    
-   op_dat p_ss = op_decl_dat(elems, 1, "double", ss, "p_ss");
-   op_dat p_elemMass = op_decl_dat(elems, 1, "double", elemMass, "p_elemMass");
-   op_dat p_vnew = op_decl_dat(elems, 1, "double", vnew, "p_vnew");
+   p_ss = op_decl_dat(elems, 1, "double", ss, "p_ss");
+   p_elemMass = op_decl_dat(elems, 1, "double", elemMass, "p_elemMass");
+   p_vnew = op_decl_dat(elems, 1, "double", vnew, "p_vnew");
 
    //Temporary
    p_sigxx = op_decl_dat(elems, 3, "double", sigxx, "p_sigxx");
    p_determ = op_decl_dat(elems, 1, "double", determ, "p_determ");
+
+   p_dvdx = op_decl_dat(elems, 8, "double",dvdx, "dvdx");
+   p_dvdy = op_decl_dat(elems, 8, "double",dvdy, "dvdy");
+   p_dvdz = op_decl_dat(elems, 8, "double",dvdz, "dvdz");
+   p_x8n = op_decl_dat(elems, 8, "double",x8n, "x8n");
+   p_y8n = op_decl_dat(elems, 8, "double",y8n, "y8n");
+   p_z8n = op_decl_dat(elems, 8, "double",z8n, "z8n");
 
    // //Declare Constants
    op_decl_const(1, "double", &m_e_cut);
