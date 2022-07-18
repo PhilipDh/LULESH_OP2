@@ -198,6 +198,11 @@ const Real_t  m_refdens = Real_t(1.0);           // reference density
 #include "CalcMonotonicQGradientsForElems.h"
 #include "UpdateVolumesForElems.h"
 #include "NoExcessiveArtificialViscosity.h"
+#include "CalcMonotonicQRegionForElems.h"
+#include "ApplyMaterialPropertiesForElems.h"
+#include "CalcEnergyForElems.h"
+#include "CalcPressureForElems.h"
+#include "CalcSoundSpeedForElems.h"
 // Define arrays and constants
 // Should maybe be moved to a header file to avoid clutter or to the main function to not be global
 // Element-centered
@@ -316,6 +321,12 @@ op_map p_nodelist;
 op_map p_symmX;
 op_map p_symmY;
 op_map p_symmZ;
+op_map p_lxim;
+op_map p_lxip;
+op_map p_letam;
+op_map p_letap;
+op_map p_lzetam;
+op_map p_lzetap;
 
 op_dat p_fx;
 op_dat p_fy;
@@ -333,6 +344,11 @@ op_dat p_x;
 op_dat p_y;
 op_dat p_z;
 
+op_dat p_qq;
+op_dat p_ql;
+
+op_dat p_e;
+
 op_dat p_p;
 op_dat p_q;
 op_dat p_v;
@@ -345,6 +361,7 @@ op_dat p_vdov;
 op_dat p_ss;
 op_dat p_elemMass;
 op_dat p_nodalMass;
+op_dat p_elemBC;
 
 op_dat p_delv_xi ;    /* velocity gradient -- temporary */
 op_dat p_delv_eta ;
@@ -375,10 +392,48 @@ op_dat p_x8n;
 op_dat p_y8n;
 op_dat p_z8n;
 
-
 op_dat p_dxx;
 op_dat p_dyy;
 op_dat p_dzz;
+
+Real_t* vnewc;
+op_dat p_vnewc;
+
+
+//EOS Temp variables
+Real_t *e_old;
+Real_t *delvc;
+Real_t *p_old;
+Real_t *q_old;
+Real_t *compression;
+Real_t *compHalfStep;
+Real_t *qq_old;
+Real_t *ql_old;
+Real_t *work;
+Real_t *p_new;
+Real_t *e_new;
+Real_t *q_new;
+Real_t *bvc;
+Real_t *pbvc;
+
+Real_t *pHalfStep;
+op_dat p_pHalfStep;
+
+op_dat p_e_old;
+op_dat p_delvc;
+op_dat p_p_old;
+op_dat p_q_old;
+op_dat p_compression;
+op_dat p_compHalfStep;
+op_dat p_qq_old;
+op_dat p_ql_old;
+op_dat p_work;
+op_dat p_p_new;
+op_dat p_e_new;
+op_dat p_q_new;
+op_dat p_bvc;
+op_dat p_pbvc;
+
 
 static inline 
 void AllocStrains(Int_t numElem){
@@ -451,6 +506,7 @@ void allocateElems(Int_t edgeElems){
    elemMass = (Real_t*) malloc(numElem * sizeof(Real_t));
 
    vnew = (Real_t*) malloc(numElem * sizeof(Real_t));
+   vnewc = (Real_t*) malloc(numElem * sizeof(Real_t));
 
    sigxx = (Real_t*) malloc(numElem* 3 * sizeof(Real_t));
    determ = (Real_t*) malloc(numElem * sizeof(Real_t));
@@ -473,6 +529,23 @@ void allocateElems(Int_t edgeElems){
    delv_xi = (Real_t*) malloc(numElem * sizeof(Real_t));
    delv_eta = (Real_t*) malloc(numElem * sizeof(Real_t));
    delv_zeta = (Real_t*) malloc(numElem * sizeof(Real_t));
+
+   //EOS Temp Vars
+   e_old = (Real_t*) malloc(numElem *sizeof(Real_t));
+   delvc = (Real_t*) malloc(numElem *sizeof(Real_t));
+   p_old = (Real_t*) malloc(numElem *sizeof(Real_t));
+   q_old = (Real_t*) malloc(numElem *sizeof(Real_t));
+   compression = (Real_t*) malloc(numElem *sizeof(Real_t));
+   compHalfStep = (Real_t*) malloc(numElem *sizeof(Real_t));
+   qq_old = (Real_t*) malloc(numElem *sizeof(Real_t));
+   ql_old = (Real_t*) malloc(numElem *sizeof(Real_t));
+   work = (Real_t*) malloc(numElem *sizeof(Real_t));
+   p_new = (Real_t*) malloc(numElem *sizeof(Real_t));
+   e_new = (Real_t*) malloc(numElem *sizeof(Real_t));
+   q_new = (Real_t*) malloc(numElem *sizeof(Real_t));
+   bvc = (Real_t*) malloc(numElem *sizeof(Real_t));
+   pbvc = (Real_t*) malloc(numElem *sizeof(Real_t));
+   pHalfStep = (Real_t*) malloc(numElem *sizeof(Real_t));
 }
 
 static inline
@@ -710,7 +783,6 @@ void initialise(Index_t colLoc,
 
    //! End Create Region Sets
 
-
    //! Setup Symmetry Planes Function
    nidx = 0 ;
    for (Index_t i=0; i<edgeNodes; ++i) {
@@ -903,7 +975,6 @@ void initialise(Index_t colLoc,
       e[0] = einit;
    }
    m_deltatime = (Real_t(.5)*cbrt(volo[0]))/sqrt(Real_t(2.0)*einit);
-
 }
 
 /* Work Routines */
@@ -2827,176 +2898,191 @@ void CalcMonotonicQRegionForElems(Domain &domain, Int_t r,
    // Real_t qlc_monoq = domain.qlc_monoq();
    // Real_t qqc_monoq = domain.qqc_monoq();
    Real_t monoq_limiter_mult = m_monoq_limiter_mult;
-   Real_t monoq_max_slope =m_monoq_max_slope;
+   Real_t monoq_max_slope = m_monoq_max_slope;
    Real_t qlc_monoq = m_qlc_monoq;
    Real_t qqc_monoq = m_qqc_monoq;
 
-#pragma omp parallel for firstprivate(qlc_monoq, qqc_monoq, monoq_limiter_mult, monoq_max_slope, ptiny)
-   // for ( Index_t i = 0 ; i < domain.regElemSize(r); ++i ) {
-   for ( Index_t i = 0 ; i < m_regElemSize[r]; ++i ) {
-      // Index_t ielem = domain.regElemlist(r,i);
-      Index_t ielem = m_regElemlist[r][i];
-      Real_t qlin, qquad ;
-      Real_t phixi, phieta, phizeta ;
-      // Int_t bcMask = domain.elemBC(ielem) ;
-      Int_t bcMask = elemBC[ielem] ;
-      Real_t delvm = 0.0, delvp =0.0;
+   op_par_loop(CalcMonotonicQRegionForElem, "CalcMonotonicQRegionForElem",elems,
+               op_arg_dat(p_delv_xi, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_delv_xi, 0, p_lxim, 1, "double", OP_READ),op_arg_dat(p_delv_xi, 0, p_lxip, 1, "double", OP_READ),
+               op_arg_dat(p_delv_eta, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_delv_eta, 0, p_letam, 1, "double", OP_READ),op_arg_dat(p_delv_eta, 0, p_letap, 1, "double", OP_READ),
+               op_arg_dat(p_delv_zeta, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_delv_zeta, 0, p_lzetam, 1, "double", OP_READ),op_arg_dat(p_delv_zeta, 0, p_lzetap, 1, "double", OP_READ),
+               op_arg_dat(p_delx_xi, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_delx_eta, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_delx_zeta, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_elemBC, -1, OP_ID, 1, "int", OP_READ), 
+               op_arg_dat(p_vdov, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_qq, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_ql, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_elemMass, -1, OP_ID, 1, "double", OP_READ), 
+               op_arg_dat(p_volo, -1, OP_ID, 1, "double", OP_READ), 
+               op_arg_dat(p_vnew, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_gbl(&ptiny, 1, "double", OP_READ),
+               op_arg_gbl(&monoq_limiter_mult, 1, "double", OP_READ),
+               op_arg_gbl(&monoq_max_slope, 1, "double", OP_READ));
 
-      /*  phixi     */
-      // Real_t norm = Real_t(1.) / (domain.delv_xi(ielem)+ ptiny ) ;
-      Real_t norm = Real_t(1.) / (delv_xi[ielem]+ ptiny ) ;
+// #pragma omp parallel for firstprivate(qlc_monoq, qqc_monoq, monoq_limiter_mult, monoq_max_slope, ptiny)
+//    // for ( Index_t i = 0 ; i < domain.regElemSize(r); ++i ) {
+//    for ( Index_t i = 0 ; i < m_regElemSize[r]; ++i ) {
+//       // Index_t ielem = domain.regElemlist(r,i);
+//       Index_t ielem = m_regElemlist[r][i];
+//       Real_t qlin, qquad ;
+//       Real_t phixi, phieta, phizeta ;
+//       // Int_t bcMask = domain.elemBC(ielem) ;
+//       Int_t bcMask = elemBC[ielem] ;
+//       Real_t delvm = 0.0, delvp =0.0;
 
-      switch (bcMask & XI_M) {
-         case XI_M_COMM: /* needs comm data */
-         case 0:         delvm = delv_xi[lxim[ielem]]; break ;
-         case XI_M_SYMM: delvm = delv_xi[ielem] ;       break ;
-         case XI_M_FREE: delvm = Real_t(0.0) ;      break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvm = 0; /* ERROR - but quiets the compiler */
-            break;
-      }
-      switch (bcMask & XI_P) {
-         case XI_P_COMM: /* needs comm data */
-         case 0:         delvp = delv_xi[lxip[ielem]] ; break ;
-         case XI_P_SYMM: delvp = delv_xi[ielem] ;       break ;
-         case XI_P_FREE: delvp = Real_t(0.0) ;      break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvp = 0; /* ERROR - but quiets the compiler */
-            break;
-      }
+//       /*  phixi     */
+//       // Real_t norm = Real_t(1.) / (domain.delv_xi(ielem)+ ptiny ) ;
+//       Real_t norm = Real_t(1.) / (delv_xi[ielem]+ ptiny ) ;
 
-      delvm = delvm * norm ;
-      delvp = delvp * norm ;
+//       switch (bcMask & XI_M) {
+//          case XI_M_COMM: /* needs comm data */
+//          case 0:         delvm = delv_xi[lxim[ielem]]; break ;
+//          case XI_M_SYMM: delvm = delv_xi[ielem] ;       break ;
+//          case XI_M_FREE: delvm = Real_t(0.0) ;      break ;
+//          default:          fprintf(stderr, "Error in switch at %s line %d\n",
+//                                    __FILE__, __LINE__);
+//             delvm = 0; /* ERROR - but quiets the compiler */
+//             break;
+//       }
+//       switch (bcMask & XI_P) {
+//          case XI_P_COMM: /* needs comm data */
+//          case 0:         delvp = delv_xi[lxip[ielem]] ; break ;
+//          case XI_P_SYMM: delvp = delv_xi[ielem] ;       break ;
+//          case XI_P_FREE: delvp = Real_t(0.0) ;      break ;
+//          default:          fprintf(stderr, "Error in switch at %s line %d\n",
+//                                    __FILE__, __LINE__);
+//             delvp = 0; /* ERROR - but quiets the compiler */
+//             break;
+//       }
 
-      phixi = Real_t(.5) * ( delvm + delvp ) ;
+//       delvm = delvm * norm ;
+//       delvp = delvp * norm ;
 
-      delvm *= monoq_limiter_mult ;
-      delvp *= monoq_limiter_mult ;
+//       phixi = Real_t(.5) * ( delvm + delvp ) ;
 
-      if ( delvm < phixi ) phixi = delvm ;
-      if ( delvp < phixi ) phixi = delvp ;
-      if ( phixi < Real_t(0.)) phixi = Real_t(0.) ;
-      if ( phixi > monoq_max_slope) phixi = monoq_max_slope;
+//       delvm *= monoq_limiter_mult ;
+//       delvp *= monoq_limiter_mult ;
+
+//       if ( delvm < phixi ) phixi = delvm ;
+//       if ( delvp < phixi ) phixi = delvp ;
+//       if ( phixi < Real_t(0.)) phixi = Real_t(0.) ;
+//       if ( phixi > monoq_max_slope) phixi = monoq_max_slope;
 
 
-      /*  phieta     */
-      // norm = Real_t(1.) / ( domain.delv_eta(ielem) + ptiny ) ;
-      norm = Real_t(1.) / ( delv_eta[ielem] + ptiny ) ;
+//       /*  phieta     */
+//       // norm = Real_t(1.) / ( domain.delv_eta(ielem) + ptiny ) ;
+//       norm = Real_t(1.) / ( delv_eta[ielem] + ptiny ) ;
 
-      switch (bcMask & ETA_M) {
-         case ETA_M_COMM: /* needs comm data */
-         case 0:          delvm = delv_eta[letam[ielem]] ; break ;
-         case ETA_M_SYMM: delvm = delv_eta[ielem] ;        break ;
-         case ETA_M_FREE: delvm = Real_t(0.0) ;        break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvm = 0; /* ERROR - but quiets the compiler */
-            break;
-      }
-      switch (bcMask & ETA_P) {
-         case ETA_P_COMM: /* needs comm data */
-         case 0:          delvp = delv_eta[letap[ielem]] ; break ;
-         case ETA_P_SYMM: delvp = delv_eta[ielem] ;        break ;
-         case ETA_P_FREE: delvp = Real_t(0.0) ;        break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvp = 0; /* ERROR - but quiets the compiler */
-            break;
-      }
+//       switch (bcMask & ETA_M) {
+//          case ETA_M_COMM: /* needs comm data */
+//          case 0:          delvm = delv_eta[letam[ielem]] ; break ;
+//          case ETA_M_SYMM: delvm = delv_eta[ielem] ;        break ;
+//          case ETA_M_FREE: delvm = Real_t(0.0) ;        break ;
+//          default:          fprintf(stderr, "Error in switch at %s line %d\n",
+//                                    __FILE__, __LINE__);
+//             delvm = 0; /* ERROR - but quiets the compiler */
+//             break;
+//       }
+//       switch (bcMask & ETA_P) {
+//          case ETA_P_COMM: /* needs comm data */
+//          case 0:          delvp = delv_eta[letap[ielem]] ; break ;
+//          case ETA_P_SYMM: delvp = delv_eta[ielem] ;        break ;
+//          case ETA_P_FREE: delvp = Real_t(0.0) ;        break ;
+//          default:          fprintf(stderr, "Error in switch at %s line %d\n",
+//                                    __FILE__, __LINE__);
+//             delvp = 0; /* ERROR - but quiets the compiler */
+//             break;
+//       }
 
-      delvm = delvm * norm ;
-      delvp = delvp * norm ;
+//       delvm = delvm * norm ;
+//       delvp = delvp * norm ;
 
-      phieta = Real_t(.5) * ( delvm + delvp ) ;
+//       phieta = Real_t(.5) * ( delvm + delvp ) ;
 
-      delvm *= monoq_limiter_mult ;
-      delvp *= monoq_limiter_mult ;
+//       delvm *= monoq_limiter_mult ;
+//       delvp *= monoq_limiter_mult ;
 
-      if ( delvm  < phieta ) phieta = delvm ;
-      if ( delvp  < phieta ) phieta = delvp ;
-      if ( phieta < Real_t(0.)) phieta = Real_t(0.) ;
-      if ( phieta > monoq_max_slope)  phieta = monoq_max_slope;
+//       if ( delvm  < phieta ) phieta = delvm ;
+//       if ( delvp  < phieta ) phieta = delvp ;
+//       if ( phieta < Real_t(0.)) phieta = Real_t(0.) ;
+//       if ( phieta > monoq_max_slope)  phieta = monoq_max_slope;
 
-      /*  phizeta     */
-      // norm = Real_t(1.) / ( domain.delv_zeta(ielem) + ptiny ) ;
-      norm = Real_t(1.) / ( delv_zeta[ielem] + ptiny ) ;
+//       /*  phizeta     */
+//       // norm = Real_t(1.) / ( domain.delv_zeta(ielem) + ptiny ) ;
+//       norm = Real_t(1.) / ( delv_zeta[ielem] + ptiny ) ;
 
-      switch (bcMask & ZETA_M) {
-         case ZETA_M_COMM: /* needs comm data */
-         // case 0:           delvm = domain.delv_zeta(domain.lzetam(ielem)) ; break ;
-         case 0:           delvm = delv_zeta[lzetam[ielem]] ; break ;
-         case ZETA_M_SYMM: delvm = delv_zeta[ielem] ;         break ;
-         case ZETA_M_FREE: delvm = Real_t(0.0) ;          break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvm = 0; /* ERROR - but quiets the compiler */
-            break;
-      }
-      switch (bcMask & ZETA_P) {
-         case ZETA_P_COMM: /* needs comm data */
-         // case 0:           delvp = domain.delv_zeta(domain.lzetap(ielem)) ; break ;
-         case 0:           delvp = delv_zeta[lzetap[ielem]] ; break ;
-         case ZETA_P_SYMM: delvp = delv_zeta[ielem] ;         break ;
-         case ZETA_P_FREE: delvp = Real_t(0.0) ;          break ;
-         default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                   __FILE__, __LINE__);
-            delvp = 0; /* ERROR - but quiets the compiler */
-            break;
-      }
+//       switch (bcMask & ZETA_M) {
+//          case ZETA_M_COMM: /* needs comm data */
+//          // case 0:           delvm = domain.delv_zeta(domain.lzetam(ielem)) ; break ;
+//          case 0:           delvm = delv_zeta[lzetam[ielem]] ; break ;
+//          case ZETA_M_SYMM: delvm = delv_zeta[ielem] ;         break ;
+//          case ZETA_M_FREE: delvm = Real_t(0.0) ;          break ;
+//          default:          fprintf(stderr, "Error in switch at %s line %d\n",
+//                                    __FILE__, __LINE__);
+//             delvm = 0; /* ERROR - but quiets the compiler */
+//             break;
+//       }
+//       switch (bcMask & ZETA_P) {
+//          case ZETA_P_COMM: /* needs comm data */
+//          // case 0:           delvp = domain.delv_zeta(domain.lzetap(ielem)) ; break ;
+//          case 0:           delvp = delv_zeta[lzetap[ielem]] ; break ;
+//          case ZETA_P_SYMM: delvp = delv_zeta[ielem] ;         break ;
+//          case ZETA_P_FREE: delvp = Real_t(0.0) ;          break ;
+//          default:          fprintf(stderr, "Error in switch at %s line %d\n",
+//                                    __FILE__, __LINE__);
+//             delvp = 0; /* ERROR - but quiets the compiler */
+//             break;
+//       }
 
-      delvm = delvm * norm ;
-      delvp = delvp * norm ;
+//       delvm = delvm * norm ;
+//       delvp = delvp * norm ;
 
-      phizeta = Real_t(.5) * ( delvm + delvp ) ;
+//       phizeta = Real_t(.5) * ( delvm + delvp ) ;
 
-      delvm *= monoq_limiter_mult ;
-      delvp *= monoq_limiter_mult ;
+//       delvm *= monoq_limiter_mult ;
+//       delvp *= monoq_limiter_mult ;
 
-      if ( delvm   < phizeta ) phizeta = delvm ;
-      if ( delvp   < phizeta ) phizeta = delvp ;
-      if ( phizeta < Real_t(0.)) phizeta = Real_t(0.);
-      if ( phizeta > monoq_max_slope  ) phizeta = monoq_max_slope;
+//       if ( delvm   < phizeta ) phizeta = delvm ;
+//       if ( delvp   < phizeta ) phizeta = delvp ;
+//       if ( phizeta < Real_t(0.)) phizeta = Real_t(0.);
+//       if ( phizeta > monoq_max_slope  ) phizeta = monoq_max_slope;
 
-      /* Remove length scale */
+//       /* Remove length scale */
 
-      // if ( domain.vdov(ielem) > Real_t(0.) )  {
-      if ( m_vdov[ielem] > Real_t(0.) )  {
-         qlin  = Real_t(0.) ;
-         qquad = Real_t(0.) ;
-      }
-      else {
-         // Real_t delvxxi   = domain.delv_xi(ielem)   * domain.delx_xi(ielem)   ;
-         // Real_t delvxeta  = domain.delv_eta(ielem)  * domain.delx_eta(ielem)  ;
-         // Real_t delvxzeta = domain.delv_zeta(ielem) * domain.delx_zeta(ielem) ;
-         Real_t delvxxi   = delv_xi[ielem]   * delx_xi[ielem]   ;
-         Real_t delvxeta  = delv_eta[ielem]  * delx_eta[ielem]  ;
-         Real_t delvxzeta = delv_zeta[ielem] * delx_zeta[ielem] ;
+//       // if ( domain.vdov(ielem) > Real_t(0.) )  {
+//       if ( m_vdov[ielem] > Real_t(0.) )  {
+//          qlin  = Real_t(0.) ;
+//          qquad = Real_t(0.) ;
+//       }
+//       else {
+//          // Real_t delvxxi   = domain.delv_xi(ielem)   * domain.delx_xi(ielem)   ;
+//          // Real_t delvxeta  = domain.delv_eta(ielem)  * domain.delx_eta(ielem)  ;
+//          // Real_t delvxzeta = domain.delv_zeta(ielem) * domain.delx_zeta(ielem) ;
+//          Real_t delvxxi   = delv_xi[ielem]   * delx_xi[ielem]   ;
+//          Real_t delvxeta  = delv_eta[ielem]  * delx_eta[ielem]  ;
+//          Real_t delvxzeta = delv_zeta[ielem] * delx_zeta[ielem] ;
 
-         if ( delvxxi   > Real_t(0.) ) delvxxi   = Real_t(0.) ;
-         if ( delvxeta  > Real_t(0.) ) delvxeta  = Real_t(0.) ;
-         if ( delvxzeta > Real_t(0.) ) delvxzeta = Real_t(0.) ;
+//          if ( delvxxi   > Real_t(0.) ) delvxxi   = Real_t(0.) ;
+//          if ( delvxeta  > Real_t(0.) ) delvxeta  = Real_t(0.) ;
+//          if ( delvxzeta > Real_t(0.) ) delvxzeta = Real_t(0.) ;
 
-         // Real_t rho = domain.elemMass(ielem) / (domain.volo(ielem) * domain.vnew(ielem)) ;
-         Real_t rho = elemMass[ielem] / (volo[ielem] * vnew[ielem]) ;
+//          // Real_t rho = domain.elemMass(ielem) / (domain.volo(ielem) * domain.vnew(ielem)) ;
+//          Real_t rho = elemMass[ielem] / (volo[ielem] * vnew[ielem]) ;
 
-         qlin = -qlc_monoq * rho *
-            (  delvxxi   * (Real_t(1.) - phixi) +
-               delvxeta  * (Real_t(1.) - phieta) +
-               delvxzeta * (Real_t(1.) - phizeta)  ) ;
+//          qlin = -qlc_monoq * rho *
+//             (  delvxxi   * (Real_t(1.) - phixi) +
+//                delvxeta  * (Real_t(1.) - phieta) +
+//                delvxzeta * (Real_t(1.) - phizeta)  ) ;
 
-         qquad = qqc_monoq * rho *
-            (  delvxxi*delvxxi     * (Real_t(1.) - phixi*phixi) +
-               delvxeta*delvxeta   * (Real_t(1.) - phieta*phieta) +
-               delvxzeta*delvxzeta * (Real_t(1.) - phizeta*phizeta)  ) ;
-      }
+//          qquad = qqc_monoq * rho *
+//             (  delvxxi*delvxxi     * (Real_t(1.) - phixi*phixi) +
+//                delvxeta*delvxeta   * (Real_t(1.) - phieta*phieta) +
+//                delvxzeta*delvxzeta * (Real_t(1.) - phizeta*phizeta)  ) ;
+//       }
 
-      // domain.qq(ielem) = qquad ;
-      // domain.ql(ielem) = qlin  ;
-      qq[ielem] = qquad ;
-      ql[ielem] = qlin  ;
-   }
+//       // domain.qq(ielem) = qquad ;
+//       // domain.ql(ielem) = qlin  ;
+//       qq[ielem] = qquad ;
+//       ql[ielem] = qlin  ;
+//    }
 }
 
 /******************************************/
@@ -3013,13 +3099,16 @@ void CalcMonotonicQForElems(Domain& domain)
    // calculate the monotonic q for all regions
    //
    // for (Index_t r=0 ; r<domain.numReg() ; ++r) {
-   for (Index_t r=0 ; r<m_numReg ; ++r) {
+   // for (Index_t r=0 ; r<m_numReg ; ++r) {
       // if (domain.regElemSize(r) > 0) {
-      if (m_regElemSize[r] > 0) {
-         CalcMonotonicQRegionForElems(domain, r, ptiny) ;
+      // if (m_regElemSize[r] > 0) {
+      if(m_numElem > 0){
+         // CalcMonotonicQRegionForElems(domain, r, ptiny) ;
+         CalcMonotonicQRegionForElems(domain, 0, ptiny) ;
       }
-   }
+      // }
 }
+
 
 /******************************************/
 
@@ -3100,6 +3189,51 @@ void CalcQForElems(Domain& domain)
 /******************************************/
 
 static inline
+void CalcPressureForElemsHalfstep(Real_t* p_new, Real_t* bvc,
+                          Real_t* pbvc, Real_t* e_old,
+                          Real_t* compression, Real_t *vnewc,
+                          Real_t pmin,
+                          Real_t p_cut, Real_t eosvmax,
+                          Index_t length, Index_t *regElemList)
+{
+   op_par_loop(CalcHalfStepBVC, "CalcHalfStepBVC", elems,
+               op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_compHalfStep, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_pbvc, -1, OP_ID, 1, "double", OP_WRITE));
+// #pragma omp parallel for firstprivate(length)
+//    for (Index_t i = 0; i < length ; ++i) {
+//       Real_t c1s = Real_t(2.0)/Real_t(3.0) ;
+//       bvc[i] = c1s * (compression[i] + Real_t(1.));
+//       pbvc[i] = c1s;
+//    }
+
+
+   op_par_loop(CalcPHalfstep, "CalcPHalfstep", elems,
+               op_arg_dat(p_pHalfStep, -1, OP_ID, 1, "double", OP_RW),
+               op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_gbl(&p_cut, 1, "double", OP_READ),
+               op_arg_gbl(&eosvmax, 1, "double", OP_READ),
+               op_arg_gbl(&pmin, 1, "double", OP_READ));
+// #pragma omp parallel for firstprivate(length, pmin, p_cut, eosvmax)
+//    for (Index_t i = 0 ; i < length ; ++i){
+//       Index_t ielem = regElemList[i];
+      
+//       p_new[i] = bvc[i] * e_old[i] ;
+
+//       if    (FABS(p_new[i]) <  p_cut   )
+//          p_new[i] = Real_t(0.0) ;
+
+//       if    ( vnewc[ielem] >= eosvmax ) /* impossible condition here? */
+//          p_new[i] = Real_t(0.0) ;
+
+//       if    (p_new[i]       <  pmin)
+//          p_new[i]   = pmin ;
+//    }
+}
+
+static inline
 void CalcPressureForElems(Real_t* p_new, Real_t* bvc,
                           Real_t* pbvc, Real_t* e_old,
                           Real_t* compression, Real_t *vnewc,
@@ -3107,28 +3241,41 @@ void CalcPressureForElems(Real_t* p_new, Real_t* bvc,
                           Real_t p_cut, Real_t eosvmax,
                           Index_t length, Index_t *regElemList)
 {
-#pragma omp parallel for firstprivate(length)
-   for (Index_t i = 0; i < length ; ++i) {
-      Real_t c1s = Real_t(2.0)/Real_t(3.0) ;
-      bvc[i] = c1s * (compression[i] + Real_t(1.));
-      pbvc[i] = c1s;
-   }
+   op_par_loop(CalcBVC, "CalcBVC", elems,
+               op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_compression, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_pbvc, -1, OP_ID, 1, "double", OP_WRITE));
+// #pragma omp parallel for firstprivate(length)
+//    for (Index_t i = 0; i < length ; ++i) {
+//       Real_t c1s = Real_t(2.0)/Real_t(3.0) ;
+//       bvc[i] = c1s * (compression[i] + Real_t(1.));
+//       pbvc[i] = c1s;
+//    }
 
-#pragma omp parallel for firstprivate(length, pmin, p_cut, eosvmax)
-   for (Index_t i = 0 ; i < length ; ++i){
-      Index_t ielem = regElemList[i];
+
+   op_par_loop(CalcPNew, "CalcPNew", elems,
+               op_arg_dat(p_p_new, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_gbl(&p_cut, 1, "double", OP_READ),
+               op_arg_gbl(&eosvmax, 1, "double", OP_READ),
+               op_arg_gbl(&pmin, 1, "double", OP_READ));
+// #pragma omp parallel for firstprivate(length, pmin, p_cut, eosvmax)
+//    for (Index_t i = 0 ; i < length ; ++i){
+//       Index_t ielem = regElemList[i];
       
-      p_new[i] = bvc[i] * e_old[i] ;
+//       p_new[i] = bvc[i] * e_old[i] ;
 
-      if    (FABS(p_new[i]) <  p_cut   )
-         p_new[i] = Real_t(0.0) ;
+//       if    (FABS(p_new[i]) <  p_cut   )
+//          p_new[i] = Real_t(0.0) ;
 
-      if    ( vnewc[ielem] >= eosvmax ) /* impossible condition here? */
-         p_new[i] = Real_t(0.0) ;
+//       if    ( vnewc[ielem] >= eosvmax ) /* impossible condition here? */
+//          p_new[i] = Real_t(0.0) ;
 
-      if    (p_new[i]       <  pmin)
-         p_new[i]   = pmin ;
-   }
+//       if    (p_new[i]       <  pmin)
+//          p_new[i]   = pmin ;
+//    }
 }
 
 /******************************************/
@@ -3145,120 +3292,180 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
                         Real_t eosvmax,
                         Index_t length, Index_t *regElemList)
 {
-   Real_t *pHalfStep = Allocate<Real_t>(length) ;
+   // Real_t *pHalfStep = Allocate<Real_t>(length) ;
 
-#pragma omp parallel for firstprivate(length, emin)
-   for (Index_t i = 0 ; i < length ; ++i) {
-      e_new[i] = e_old[i] - Real_t(0.5) * delvc[i] * (p_old[i] + q_old[i])
-         + Real_t(0.5) * work[i];
 
-      if (e_new[i]  < emin ) {
-         e_new[i] = emin ;
-      }
-   }
+   op_par_loop(CalcNewE, "CalcNewE", elems,
+               op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_e_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_gbl(&emin, 1, "double", OP_READ),
+               op_arg_dat(p_delvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_p_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_q_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_work, -1, OP_ID, 1, "double", OP_READ)
+   );
+// #pragma omp parallel for firstprivate(length, emin)
+//    for (Index_t i = 0 ; i < length ; ++i) {
+//       e_new[i] = e_old[i] - Real_t(0.5) * delvc[i] * (p_old[i] + q_old[i])
+//          + Real_t(0.5) * work[i];
 
-   CalcPressureForElems(pHalfStep, bvc, pbvc, e_new, compHalfStep, vnewc,
+//       if (e_new[i]  < emin ) {
+//          e_new[i] = emin ;
+//       }
+//    }
+
+   CalcPressureForElemsHalfstep(pHalfStep, bvc, pbvc, e_new, compHalfStep, vnewc,
                         pmin, p_cut, eosvmax, length, regElemList);
 
-#pragma omp parallel for firstprivate(length, rho0)
-   for (Index_t i = 0 ; i < length ; ++i) {
-      Real_t vhalf = Real_t(1.) / (Real_t(1.) + compHalfStep[i]) ;
+   op_par_loop(CalcNewEStep2, "CalcNewEStep2", elems,
+               op_arg_dat(p_compHalfStep, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_delvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_q_new, -1, OP_ID, 1, "double", OP_RW),
+               op_arg_dat(p_pbvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_RW),
+               op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_pHalfStep, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_ql_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_qq_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_p_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_q_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_gbl(&rho0, 1, "double", OP_READ)
+   );
+// #pragma omp parallel for firstprivate(length, rho0)
+//    for (Index_t i = 0 ; i < length ; ++i) {
+//       Real_t vhalf = Real_t(1.) / (Real_t(1.) + compHalfStep[i]) ;
 
-      if ( delvc[i] > Real_t(0.) ) {
-         q_new[i] /* = qq_old[i] = ql_old[i] */ = Real_t(0.) ;
-      }
-      else {
-         Real_t ssc = ( pbvc[i] * e_new[i]
-                 + vhalf * vhalf * bvc[i] * pHalfStep[i] ) / rho0 ;
+//       if ( delvc[i] > Real_t(0.) ) {
+//          q_new[i] /* = qq_old[i] = ql_old[i] */ = Real_t(0.) ;
+//       }
+//       else {
+//          Real_t ssc = ( pbvc[i] * e_new[i]
+//                  + vhalf * vhalf * bvc[i] * pHalfStep[i] ) / rho0 ;
 
-         if ( ssc <= Real_t(.1111111e-36) ) {
-            ssc = Real_t(.3333333e-18) ;
-         } else {
-            ssc = SQRT(ssc) ;
-         }
+//          if ( ssc <= Real_t(.1111111e-36) ) {
+//             ssc = Real_t(.3333333e-18) ;
+//          } else {
+//             ssc = SQRT(ssc) ;
+//          }
 
-         q_new[i] = (ssc*ql_old[i] + qq_old[i]) ;
-      }
+//          q_new[i] = (ssc*ql_old[i] + qq_old[i]) ;
+//       }
 
-      e_new[i] = e_new[i] + Real_t(0.5) * delvc[i]
-         * (  Real_t(3.0)*(p_old[i]     + q_old[i])
-              - Real_t(4.0)*(pHalfStep[i] + q_new[i])) ;
-   }
+//       e_new[i] = e_new[i] + Real_t(0.5) * delvc[i]
+//          * (  Real_t(3.0)*(p_old[i]     + q_old[i])
+//               - Real_t(4.0)*(pHalfStep[i] + q_new[i])) ;
+//    }
 
-#pragma omp parallel for firstprivate(length, emin, e_cut)
-   for (Index_t i = 0 ; i < length ; ++i) {
+   op_par_loop(CalcNewEStep3, "CalcNewEStep3", elems,
+               op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_RW),
+               op_arg_dat(p_work, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_gbl(&e_cut, 1, "double", OP_READ),
+               op_arg_gbl(&emin, 1, "double", OP_WRITE)
+   );
+// #pragma omp parallel for firstprivate(length, emin, e_cut)
+//    for (Index_t i = 0 ; i < length ; ++i) {
 
-      e_new[i] += Real_t(0.5) * work[i];
+//       e_new[i] += Real_t(0.5) * work[i];
 
-      if (FABS(e_new[i]) < e_cut) {
-         e_new[i] = Real_t(0.)  ;
-      }
-      if (     e_new[i]  < emin ) {
-         e_new[i] = emin ;
-      }
-   }
+//       if (FABS(e_new[i]) < e_cut) {
+//          e_new[i] = Real_t(0.)  ;
+//       }
+//       if (     e_new[i]  < emin ) {
+//          e_new[i] = emin ;
+//       }
+//    }
 
    CalcPressureForElems(p_new, bvc, pbvc, e_new, compression, vnewc,
                         pmin, p_cut, eosvmax, length, regElemList);
 
-#pragma omp parallel for firstprivate(length, rho0, emin, e_cut)
-   for (Index_t i = 0 ; i < length ; ++i){
-      const Real_t sixth = Real_t(1.0) / Real_t(6.0) ;
-      Index_t ielem = regElemList[i];
-      Real_t q_tilde ;
+   op_par_loop(CalcNewEStep4, "CalcNewEStep4", elems,
+               op_arg_dat(p_delvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_pbvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_RW),
+               op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_p_new, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_ql_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_qq_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_p_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_q_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_q_new, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_pHalfStep, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_gbl(&rho0, 1, "double", OP_READ),
+               op_arg_gbl(&e_cut, 1, "double", OP_READ),
+               op_arg_gbl(&emin, 1, "double", OP_READ)
+   );
+// #pragma omp parallel for firstprivate(length, rho0, emin, e_cut)
+//    for (Index_t i = 0 ; i < length ; ++i){
+//       const Real_t sixth = Real_t(1.0) / Real_t(6.0) ;
+//       Index_t ielem = regElemList[i];
+//       Real_t q_tilde ;
 
-      if (delvc[i] > Real_t(0.)) {
-         q_tilde = Real_t(0.) ;
-      }
-      else {
-         Real_t ssc = ( pbvc[i] * e_new[i]
-                 + vnewc[ielem] * vnewc[ielem] * bvc[i] * p_new[i] ) / rho0 ;
+//       if (delvc[i] > Real_t(0.)) {
+//          q_tilde = Real_t(0.) ;
+//       }
+//       else {
+//          Real_t ssc = ( pbvc[i] * e_new[i]
+//                  + vnewc[ielem] * vnewc[ielem] * bvc[i] * p_new[i] ) / rho0 ;
 
-         if ( ssc <= Real_t(.1111111e-36) ) {
-            ssc = Real_t(.3333333e-18) ;
-         } else {
-            ssc = SQRT(ssc) ;
-         }
+//          if ( ssc <= Real_t(.1111111e-36) ) {
+//             ssc = Real_t(.3333333e-18) ;
+//          } else {
+//             ssc = SQRT(ssc) ;
+//          }
 
-         q_tilde = (ssc*ql_old[i] + qq_old[i]) ;
-      }
+//          q_tilde = (ssc*ql_old[i] + qq_old[i]) ;
+//       }
 
-      e_new[i] = e_new[i] - (  Real_t(7.0)*(p_old[i]     + q_old[i])
-                               - Real_t(8.0)*(pHalfStep[i] + q_new[i])
-                               + (p_new[i] + q_tilde)) * delvc[i]*sixth ;
+//       e_new[i] = e_new[i] - (  Real_t(7.0)*(p_old[i]     + q_old[i])
+//                                - Real_t(8.0)*(pHalfStep[i] + q_new[i])
+//                                + (p_new[i] + q_tilde)) * delvc[i]*sixth ;
 
-      if (FABS(e_new[i]) < e_cut) {
-         e_new[i] = Real_t(0.)  ;
-      }
-      if (     e_new[i]  < emin ) {
-         e_new[i] = emin ;
-      }
-   }
+//       if (FABS(e_new[i]) < e_cut) {
+//          e_new[i] = Real_t(0.)  ;
+//       }
+//       if (     e_new[i]  < emin ) {
+//          e_new[i] = emin ;
+//       }
+//    }
 
    CalcPressureForElems(p_new, bvc, pbvc, e_new, compression, vnewc,
                         pmin, p_cut, eosvmax, length, regElemList);
 
-#pragma omp parallel for firstprivate(length, rho0, q_cut)
-   for (Index_t i = 0 ; i < length ; ++i){
-      Index_t ielem = regElemList[i];
+   op_par_loop(CalcQNew, "CalcQNew", elems,
+               op_arg_dat(p_delvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_pbvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_p_new, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_q_new, -1, OP_ID, 1, "double", OP_RW),
+               op_arg_dat(p_ql_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_qq_old, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_gbl(&rho0, 1, "double", OP_READ),
+               op_arg_gbl(&q_cut, 1, "double", OP_READ));
+   
+// #pragma omp parallel for firstprivate(length, rho0, q_cut)
+//    for (Index_t i = 0 ; i < length ; ++i){
+//       Index_t ielem = regElemList[i];
 
-      if ( delvc[i] <= Real_t(0.) ) {
-         Real_t ssc = ( pbvc[i] * e_new[i]
-                 + vnewc[ielem] * vnewc[ielem] * bvc[i] * p_new[i] ) / rho0 ;
+//       if ( delvc[i] <= Real_t(0.) ) {
+//          Real_t ssc = ( pbvc[i] * e_new[i]
+//                  + vnewc[ielem] * vnewc[ielem] * bvc[i] * p_new[i] ) / rho0 ;
 
-         if ( ssc <= Real_t(.1111111e-36) ) {
-            ssc = Real_t(.3333333e-18) ;
-         } else {
-            ssc = SQRT(ssc) ;
-         }
+//          if ( ssc <= Real_t(.1111111e-36) ) {
+//             ssc = Real_t(.3333333e-18) ;
+//          } else {
+//             ssc = SQRT(ssc) ;
+//          }
 
-         q_new[i] = (ssc*ql_old[i] + qq_old[i]) ;
+//          q_new[i] = (ssc*ql_old[i] + qq_old[i]) ;
 
-         if (FABS(q_new[i]) < q_cut) q_new[i] = Real_t(0.) ;
-      }
-   }
+//          if (FABS(q_new[i]) < q_cut) q_new[i] = Real_t(0.) ;
+//       }
+//    }
 
-   Release(&pHalfStep) ;
+   // Release(&pHalfStep) ;
 
    return ;
 }
@@ -3272,21 +3479,30 @@ void CalcSoundSpeedForElems(Domain &domain,
                             Real_t *bvc, Real_t ss4o3,
                             Index_t len, Index_t *regElemList)
 {
-#pragma omp parallel for firstprivate(rho0, ss4o3)
-   for (Index_t i = 0; i < len ; ++i) {
-      Index_t ielem = regElemList[i];
-      Real_t ssTmp = (pbvc[i] * enewc[i] + vnewc[ielem] * vnewc[ielem] *
-                 bvc[i] * pnewc[i]) / rho0;
-      if (ssTmp <= Real_t(.1111111e-36)) {
-         ssTmp = Real_t(.3333333e-18);
-      }
-      else {
-         ssTmp = SQRT(ssTmp);
-      }
-      // domain.ss(ielem) = ssTmp ;
-      ss[ielem] = ssTmp ;
 
-   }
+   op_par_loop(CalcSoundSpeedForElem, "CalcSoundSpeedForElem", elems,
+               op_arg_dat(p_pbvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_p_new, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_ss, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_gbl(&rho0, 1, "double", OP_READ));
+// #pragma omp parallel for firstprivate(rho0, ss4o3)
+//    for (Index_t i = 0; i < len ; ++i) {
+//       Index_t ielem = regElemList[i];
+//       Real_t ssTmp = (pbvc[i] * enewc[i] + vnewc[ielem] * vnewc[ielem] *
+//                  bvc[i] * pnewc[i]) / rho0;
+//       if (ssTmp <= Real_t(.1111111e-36)) {
+//          ssTmp = Real_t(.3333333e-18);
+//       }
+//       else {
+//          ssTmp = SQRT(ssTmp);
+//       }
+//       // domain.ss(ielem) = ssTmp ;
+//       ss[ielem] = ssTmp ;
+
+//    }
 }
 
 /******************************************/
@@ -3319,81 +3535,108 @@ void EvalEOSForElems(Domain& domain, Real_t *vnewc,
    // These temporaries will be of different size for 
    // each call (due to different sized region element
    // lists)
-   Real_t *e_old = Allocate<Real_t>(numElemReg) ;
-   Real_t *delvc = Allocate<Real_t>(numElemReg) ;
-   Real_t *p_old = Allocate<Real_t>(numElemReg) ;
-   Real_t *q_old = Allocate<Real_t>(numElemReg) ;
-   Real_t *compression = Allocate<Real_t>(numElemReg) ;
-   Real_t *compHalfStep = Allocate<Real_t>(numElemReg) ;
-   Real_t *qq_old = Allocate<Real_t>(numElemReg) ;
-   Real_t *ql_old = Allocate<Real_t>(numElemReg) ;
-   Real_t *work = Allocate<Real_t>(numElemReg) ;
-   Real_t *p_new = Allocate<Real_t>(numElemReg) ;
-   Real_t *e_new = Allocate<Real_t>(numElemReg) ;
-   Real_t *q_new = Allocate<Real_t>(numElemReg) ;
-   Real_t *bvc = Allocate<Real_t>(numElemReg) ;
-   Real_t *pbvc = Allocate<Real_t>(numElemReg) ;
+   // Real_t *e_old = Allocate<Real_t>(numElemReg) ;
+   // Real_t *delvc = Allocate<Real_t>(numElemReg) ;
+   // Real_t *p_old = Allocate<Real_t>(numElemReg) ;
+   // Real_t *q_old = Allocate<Real_t>(numElemReg) ;
+   // Real_t *compression = Allocate<Real_t>(numElemReg) ;
+   // Real_t *compHalfStep = Allocate<Real_t>(numElemReg) ;
+   // Real_t *qq_old = Allocate<Real_t>(numElemReg) ;
+   // Real_t *ql_old = Allocate<Real_t>(numElemReg) ;
+   // Real_t *work = Allocate<Real_t>(numElemReg) ;
+   // Real_t *p_new = Allocate<Real_t>(numElemReg) ;
+   // Real_t *e_new = Allocate<Real_t>(numElemReg) ;
+   // Real_t *q_new = Allocate<Real_t>(numElemReg) ;
+   // Real_t *bvc = Allocate<Real_t>(numElemReg) ;
+   // Real_t *pbvc = Allocate<Real_t>(numElemReg) ;
  
    //loop to add load imbalance based on region number 
    for(Int_t j = 0; j < rep; j++) {
       /* compress data, minimal set */
 #pragma omp parallel
       {
-#pragma omp for nowait firstprivate(numElemReg)
-         for (Index_t i=0; i<numElemReg; ++i) {
-            Index_t ielem = regElemList[i];
-            // e_old[i] = domain.e(ielem) ;
-            // delvc[i] = domain.delv(ielem) ;
-            e_old[i] = e[ielem] ;
-            delvc[i] = delv[ielem] ;
-            // p_old[i] = domain.p(ielem) ;
-            // q_old[i] = domain.q(ielem) ;
+
+         op_par_loop(CopyEOSValsIntoArray, "CopyEOSValsIntoArray", elems,
+                     op_arg_dat(p_e_old, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_e, -1, OP_ID, 1, "double", OP_READ),
+                     op_arg_dat(p_delvc, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_delv, -1, OP_ID, 1, "double", OP_READ),
+                     op_arg_dat(p_p_old, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_p, -1, OP_ID, 1, "double", OP_READ),
+                     op_arg_dat(p_q_old, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_q, -1, OP_ID, 1, "double", OP_READ),
+                     op_arg_dat(p_qq_old, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_qq, -1, OP_ID, 1, "double", OP_READ),
+                     op_arg_dat(p_ql_old, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_ql, -1, OP_ID, 1, "double", OP_READ));
+// #pragma omp for nowait firstprivate(numElemReg)
+//          for (Index_t i=0; i<numElemReg; ++i) {
+//             Index_t ielem = regElemList[i];
+//             // e_old[i] = domain.e(ielem) ;
+//             // delvc[i] = domain.delv(ielem) ;
+//             e_old[i] = e[ielem] ;
+//             delvc[i] = delv[ielem] ;
+//             // p_old[i] = domain.p(ielem) ;
+//             // q_old[i] = domain.q(ielem) ;
             
-            p_old[i] = p[ielem] ;
-            q_old[i] = q[ielem] ;
+//             p_old[i] = p[ielem] ;
+//             q_old[i] = q[ielem] ;
 
-            // qq_old[i] = domain.qq(ielem) ;
-            // ql_old[i] = domain.ql(ielem) ;
+//             // qq_old[i] = domain.qq(ielem) ;
+//             // ql_old[i] = domain.ql(ielem) ;
 
-            qq_old[i] = qq[ielem] ;
-            ql_old[i] = ql[ielem] ;
-         }
-
-#pragma omp for firstprivate(numElemReg)
-         for (Index_t i = 0; i < numElemReg ; ++i) {
-            Index_t ielem = regElemList[i];
-            Real_t vchalf ;
-            compression[i] = Real_t(1.) / vnewc[ielem] - Real_t(1.);
-            vchalf = vnewc[ielem] - delvc[i] * Real_t(.5);
-            compHalfStep[i] = Real_t(1.) / vchalf - Real_t(1.);
-         }
+//             qq_old[i] = qq[ielem] ;
+//             ql_old[i] = ql[ielem] ;
+//          }
+         op_par_loop(CalcHalfSteps, "CalcHalfSteps", elems,
+                     op_arg_dat(p_compression, -1, OP_ID, 1, "double", OP_WRITE),
+                     op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
+                     op_arg_dat(p_delvc, -1, OP_ID, 1, "double", OP_READ),
+                     op_arg_dat(p_compHalfStep, -1, OP_ID, 1, "double", OP_WRITE)
+         );
+// #pragma omp for firstprivate(numElemReg)
+//          for (Index_t i = 0; i < numElemReg ; ++i) {
+//             Index_t ielem = regElemList[i];
+//             Real_t vchalf ;
+//             compression[i] = Real_t(1.) / vnewc[ielem] - Real_t(1.);
+//             vchalf = vnewc[ielem] - delvc[i] * Real_t(.5);
+//             compHalfStep[i] = Real_t(1.) / vchalf - Real_t(1.);
+//          }
 
       /* Check for v > eosvmax or v < eosvmin */
          if ( eosvmin != Real_t(0.) ) {
-#pragma omp for nowait firstprivate(numElemReg, eosvmin)
-            for(Index_t i=0 ; i<numElemReg ; ++i) {
-               Index_t ielem = regElemList[i];
-               if (vnewc[ielem] <= eosvmin) { /* impossible due to calling func? */
-                  compHalfStep[i] = compression[i] ;
-               }
-            }
+            op_par_loop(CheckEOSLowerBound, "CheckEOSLowerBound", elems,
+                        op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
+                        op_arg_dat(p_compHalfStep, -1, OP_ID, 1, "double", OP_WRITE),
+                        op_arg_dat(p_compression, -1, OP_ID, 1, "double", OP_READ),
+                        op_arg_gbl(&eosvmin, 1, "double", OP_READ)
+            );
+// #pragma omp for nowait firstprivate(numElemReg, eosvmin)
+//             for(Index_t i=0 ; i<numElemReg ; ++i) {
+//                Index_t ielem = regElemList[i];
+//                if (vnewc[ielem] <= eosvmin) { /* impossible due to calling func? */
+//                   compHalfStep[i] = compression[i] ;
+//                }
+//             }
          }
          if ( eosvmax != Real_t(0.) ) {
-#pragma omp for nowait firstprivate(numElemReg, eosvmax)
-            for(Index_t i=0 ; i<numElemReg ; ++i) {
-               Index_t ielem = regElemList[i];
-               if (vnewc[ielem] >= eosvmax) { /* impossible due to calling func? */
-                  p_old[i]        = Real_t(0.) ;
-                  compression[i]  = Real_t(0.) ;
-                  compHalfStep[i] = Real_t(0.) ;
-               }
-            }
+            op_par_loop(CheckEOSUpperBound, "CheckEOSUpperBound", elems,
+                        op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
+                        op_arg_dat(p_compHalfStep, -1, OP_ID, 1, "double", OP_WRITE),
+                        op_arg_dat(p_compression, -1, OP_ID, 1, "double", OP_WRITE),
+                        op_arg_dat(p_p_old, -1, OP_ID, 1, "double", OP_WRITE),
+                        op_arg_gbl(&eosvmax, 1, "double", OP_READ)
+            );
+// #pragma omp for nowait firstprivate(numElemReg, eosvmax)
+//             for(Index_t i=0 ; i<numElemReg ; ++i) {
+//                Index_t ielem = regElemList[i];
+//                if (vnewc[ielem] >= eosvmax) { /* impossible due to calling func? */
+//                   p_old[i]        = Real_t(0.) ;
+//                   compression[i]  = Real_t(0.) ;
+//                   compHalfStep[i] = Real_t(0.) ;
+//                }
+//             }
          }
-
-#pragma omp for nowait firstprivate(numElemReg)
-         for (Index_t i = 0 ; i < numElemReg ; ++i) {
-            work[i] = Real_t(0.) ; 
-         }
+         op_par_loop(CalcEOSWork, "CalcEOSWork", elems,
+                     op_arg_dat(p_work, -1, OP_ID, 1 , "double", OP_WRITE));
+// #pragma omp for nowait firstprivate(numElemReg)
+//          for (Index_t i = 0 ; i < numElemReg ; ++i) {
+//             work[i] = Real_t(0.) ; 
+//          }
       }
       CalcEnergyForElems(p_new, e_new, q_new, bvc, pbvc,
                          p_old, e_old,  q_old, compression, compHalfStep,
@@ -3403,36 +3646,42 @@ void EvalEOSForElems(Domain& domain, Real_t *vnewc,
                          numElemReg, regElemList);
    }
 
-#pragma omp parallel for firstprivate(numElemReg)
-   for (Index_t i=0; i<numElemReg; ++i) {
-      Index_t ielem = regElemList[i];
-      // domain.p(ielem) = p_new[i] ;
-      // domain.e(ielem) = e_new[i] ;
-      // domain.q(ielem) = q_new[i] ;
-      p[ielem] = p_new[i];
-      e[ielem] = e_new[i];
-      q[ielem] = q_new[i];
-   }
+
+   op_par_loop(CopyTempEOSVarsBack, "CopyTempEOSVarsBack", elems,
+               op_arg_dat(p_p, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_p_new, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_e, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_q, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_q_new, -1, OP_ID, 1, "double", OP_READ)
+   );
+// #pragma omp parallel for firstprivate(numElemReg)
+//    for (Index_t i=0; i<numElemReg; ++i) {
+//       Index_t ielem = regElemList[i];
+//       // domain.p(ielem) = p_new[i] ;
+//       // domain.e(ielem) = e_new[i] ;
+//       // domain.q(ielem) = q_new[i] ;
+//       p[ielem] = p_new[i];
+//       e[ielem] = e_new[i];
+//       q[ielem] = q_new[i];
+//    }
 
    CalcSoundSpeedForElems(domain,
                           vnewc, rho0, e_new, p_new,
                           pbvc, bvc, ss4o3,
                           numElemReg, regElemList) ;
 
-   Release(&pbvc) ;
-   Release(&bvc) ;
-   Release(&q_new) ;
-   Release(&e_new) ;
-   Release(&p_new) ;
-   Release(&work) ;
-   Release(&ql_old) ;
-   Release(&qq_old) ;
-   Release(&compHalfStep) ;
-   Release(&compression) ;
-   Release(&q_old) ;
-   Release(&p_old) ;
-   Release(&delvc) ;
-   Release(&e_old) ;
+   // Release(&pbvc) ;
+   // Release(&bvc) ;
+   // Release(&q_new) ;
+   // Release(&e_new) ;
+   // Release(&p_new) ;
+   // Release(&work) ;
+   // Release(&ql_old) ;
+   // Release(&qq_old) ;
+   // Release(&compHalfStep) ;
+   // Release(&compression) ;
+   // Release(&q_old) ;
+   // Release(&p_old) ;
+   // Release(&delvc) ;
+   // Release(&e_old) ;
 }
 
 /******************************************/
@@ -3449,83 +3698,99 @@ void ApplyMaterialPropertiesForElems(Domain& domain)
    //  Real_t eosvmax = domain.eosvmax() ;
     Real_t eosvmin = m_eosvmin ;
     Real_t eosvmax = m_eosvmax ;
-    Real_t *vnewc = Allocate<Real_t>(numElem) ;
+    //Real_t *vnewc = Allocate<Real_t>(numElem) ;
 
 #pragma omp parallel
     {
-#pragma omp for firstprivate(numElem)
-       for(Index_t i=0 ; i<numElem ; ++i) {
-         //  vnewc[i] = domain.vnew(i) ;
-          vnewc[i] = vnew[i] ;
-       }
+
+      op_par_loop(CopyVelocityToTempArray, "CopyVelocityToTempArray", elems,
+                  op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_WRITE),
+                  op_arg_dat(p_vnew, -1, OP_ID, 1, "double", OP_READ));
+// #pragma omp for firstprivate(numElem)
+//        for(Index_t i=0 ; i<numElem ; ++i) {
+//          //  vnewc[i] = domain.vnew(i) ;
+//           vnewc[i] = vnew[i] ;
+//        }
 
        // Bound the updated relative volumes with eosvmin/max
        if (eosvmin != Real_t(0.)) {
-#pragma omp for nowait firstprivate(numElem)
-          for(Index_t i=0 ; i<numElem ; ++i) {
-             if (vnewc[i] < eosvmin)
-                vnewc[i] = eosvmin ;
-          }
+         op_par_loop(ApplyLowerBoundToVelocity, "ApplyLowerBoundToVelocity", elems,
+                  op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_WRITE),
+                  op_arg_gbl(&eosvmin, 1, "double", OP_READ));
+// #pragma omp for nowait firstprivate(numElem)
+//           for(Index_t i=0 ; i<numElem ; ++i) {
+//              if (vnewc[i] < eosvmin)
+//                 vnewc[i] = eosvmin ;
+//           }
        }
 
        if (eosvmax != Real_t(0.)) {
-#pragma omp for nowait firstprivate(numElem)
-          for(Index_t i=0 ; i<numElem ; ++i) {
-             if (vnewc[i] > eosvmax)
-                vnewc[i] = eosvmax ;
-          }
+         op_par_loop(ApplyUpperBoundToVelocity, "ApplyUpperBoundToVelocity", elems,
+                  op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_WRITE),
+                  op_arg_gbl(&eosvmax, 1, "double", OP_READ));
+// #pragma omp for nowait firstprivate(numElem)
+//           for(Index_t i=0 ; i<numElem ; ++i) {
+//              if (vnewc[i] > eosvmax)
+//                 vnewc[i] = eosvmax ;
+//           }
        }
 
        // This check may not make perfect sense in LULESH, but
        // it's representative of something in the full code -
        // just leave it in, please
-#pragma omp for nowait firstprivate(numElem)
-       for (Index_t i=0; i<numElem; ++i) {
-         //  Real_t vc = domain.v(i) ;
-          Real_t vc = v[i] ;
-          if (eosvmin != Real_t(0.)) {
-             if (vc < eosvmin)
-                vc = eosvmin ;
-          }
-          if (eosvmax != Real_t(0.)) {
-             if (vc > eosvmax)
-                vc = eosvmax ;
-          }
-          if (vc <= 0.) {
-#if USE_MPI
-             MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
-#else
-             exit(VolumeError);
-#endif
-          }
-       }
+      op_par_loop(ALE3DRelevantCheck, "ALE3DRelevantCheck", elems,
+                  op_arg_dat(p_v, -1, OP_ID, 1, "double", OP_READ),
+                  op_arg_gbl(&eosvmin, 1, "double", OP_READ),
+                  op_arg_gbl(&eosvmax, 1, "double", OP_READ)
+                  );
+// #pragma omp for nowait firstprivate(numElem)
+//        for (Index_t i=0; i<numElem; ++i) {
+//          //  Real_t vc = domain.v(i) ;
+//           Real_t vc = v[i] ;
+//           if (eosvmin != Real_t(0.)) {
+//              if (vc < eosvmin)
+//                 vc = eosvmin ;
+//           }
+//           if (eosvmax != Real_t(0.)) {
+//              if (vc > eosvmax)
+//                 vc = eosvmax ;
+//           }
+//           if (vc <= 0.) {
+// #if USE_MPI
+//              MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
+// #else
+//              exit(VolumeError);
+// #endif
+//           }
+//        }
     }
 
    //  for (Int_t r=0 ; r<domain.numReg() ; r++) {
-    for (Int_t r=0 ; r<m_numReg ; r++) {
-      //  Index_t numElemReg = domain.regElemSize(r);
-       Index_t numElemReg = m_regElemSize[r];
-      //  Index_t *regElemList = domain.regElemlist(r);
-       Index_t *regElemList = m_regElemlist[r];
-       Int_t rep;
-       //Determine load imbalance for this region
-       //round down the number with lowest cost
-      //  if(r < domain.numReg()/2)
-       if(r < m_numReg/2)
-	 rep = 1;
-       //you don't get an expensive region unless you at least have 5 regions
-      //  else if(r < (domain.numReg() - (domain.numReg()+15)/20))
-       else if(r < (m_numReg - (m_numReg+15)/20))
-         // rep = 1 + domain.cost();
-         rep = 1 + m_cost;
-       //very expensive regions
-       else
+   //  for (Int_t r=0 ; r<m_numReg ; r++) {
+   //    //  Index_t numElemReg = domain.regElemSize(r);
+   //     Index_t numElemReg = m_regElemSize[r];
+   //    //  Index_t *regElemList = domain.regElemlist(r);
+   //     Index_t *regElemList = m_regElemlist[r];
+   //     Int_t rep;
+   //     //Determine load imbalance for this region
+   //     //round down the number with lowest cost
+   //    //  if(r < domain.numReg()/2)
+   //     if(r < m_numReg/2)
+	//  rep = 1;
+   //     //you don't get an expensive region unless you at least have 5 regions
+   //    //  else if(r < (domain.numReg() - (domain.numReg()+15)/20))
+   //     else if(r < (m_numReg - (m_numReg+15)/20))
+   //       // rep = 1 + domain.cost();
+   //       rep = 1 + m_cost;
+   //     //very expensive regions
+   //     else
 	//  rep = 10 * (1+ domain.cost());
-	 rep = 10 * (1+ m_cost);
-       EvalEOSForElems(domain, vnewc, numElemReg, regElemList, rep);
-    }
+	//  rep = 10 * (1+ m_cost);
+      //  EvalEOSForElems(domain, vnewc, numElemReg, regElemList, rep);
+       EvalEOSForElems(domain, vnewc, m_regElemSize[0], m_regElemlist[0], 1);
+   //  }
 
-    Release(&vnewc) ;
+   //  Release(&vnewc) ;
   }
 }
 
@@ -3834,7 +4099,7 @@ int main(int argc, char *argv[])
    /* Set defaults that can be overridden by command line opts */
    opts.its = 9999999; // Iterations
    opts.nx  = 30; //Size
-   opts.numReg = 11;
+   opts.numReg = 1;
    opts.numFiles = (int)(numRanks+10)/9;
    opts.showProg = 0;
    opts.quiet = 0;
@@ -3877,16 +4142,25 @@ int main(int argc, char *argv[])
    //! The 0 zeroes are for the row, col and plane locations, might have to be removed/changed
    initialise(0,0,0,opts.nx,1,opts.numReg,opts.balance, opts.cost);
 
+   std::cout << "Starting op2 sets\n";
    nodes = op_decl_set(m_numNode, "nodes");
    elems = op_decl_set(m_numElem, "elems");
    symmetry = op_decl_set(edgeNodes*edgeNodes, "symmetries");
    temp_vols = op_decl_set(m_numElem*8, "tempVols");
 
+   std::cout << "Starting op2 maps\n";
    p_nodelist = op_decl_map(elems, nodes, 8, nodelist, "nodelist");
-   p_symmX = op_decl_map(nodes, symmetry, 1, symmX, "symmX");
-   p_symmY = op_decl_map(nodes, symmetry, 1, symmY, "symmY");
-   p_symmZ = op_decl_map(nodes, symmetry, 1, symmZ, "symmZ");
+   // p_symmX = op_decl_map(nodes, symmetry, 1, symmX, "symmX");
+   // p_symmY = op_decl_map(nodes, symmetry, 1, symmY, "symmY");
+   // p_symmZ = op_decl_map(nodes, symmetry, 1, symmZ, "symmZ");
+   p_lxim = op_decl_map(elems, elems, 1, lxim, "lxim");
+   p_lxip = op_decl_map(elems, elems, 1, lxip, "lxip");
+   p_letam = op_decl_map(elems, elems, 1, letam, "letam");
+   p_letap = op_decl_map(elems, elems, 1, letap, "letap");
+   p_lzetam = op_decl_map(elems, elems, 1, lzetam, "lzetam");
+   p_lzetap = op_decl_map(elems, elems, 1, lzetap, "lzetap");
 
+   std::cout << "Starting op2 node centred\n";
    //Node Centred
    p_x = op_decl_dat(nodes, 1, "double", x, "p_x");
    p_y = op_decl_dat(nodes, 1, "double", y, "p_y");
@@ -3902,12 +4176,13 @@ int main(int argc, char *argv[])
    p_fz = op_decl_dat(nodes, 1, "double", m_fz, "p_fz");
 
    p_nodalMass = op_decl_dat(nodes, 1, "double", nodalMass, "p_nodalMass");
-   // //Elem Centred
-   op_dat p_e = op_decl_dat(elems, 1, "double", e, "p_e");
+   std::cout << "Starting op2 elem centred\n";
+   //Elem Centred
+   p_e = op_decl_dat(elems, 1, "double", e, "p_e");
    p_p = op_decl_dat(elems, 1, "double", p, "p_p");
    p_q = op_decl_dat(elems, 1, "double", q, "p_q");
-   op_dat p_ql = op_decl_dat(elems, 1, "double", ql, "p_ql");
-   op_dat p_qq = op_decl_dat(elems, 1, "double", qq, "p_qq");
+   p_ql = op_decl_dat(elems, 1, "double", ql, "p_ql");
+   p_qq = op_decl_dat(elems, 1, "double", qq, "p_qq");
    p_v = op_decl_dat(elems, 1, "double", v, "p_v");
    p_volo = op_decl_dat(elems, 1, "double", volo, "p_volo");
    p_delv = op_decl_dat(elems, 1, "double", delv, "p_delv");
@@ -3921,7 +4196,9 @@ int main(int argc, char *argv[])
    p_ss = op_decl_dat(elems, 1, "double", ss, "p_ss");
    p_elemMass = op_decl_dat(elems, 1, "double", elemMass, "p_elemMass");
    p_vnew = op_decl_dat(elems, 1, "double", vnew, "p_vnew");
+   p_vnewc = op_decl_dat(elems, 1, "double", vnewc, "p_vnewc");
 
+   std::cout << "Starting op2 tempss\n";
    //Temporary
    p_sigxx = op_decl_dat(elems, 3, "double", sigxx, "p_sigxx");
    p_determ = op_decl_dat(elems, 1, "double", determ, "p_determ");
@@ -3941,7 +4218,27 @@ int main(int argc, char *argv[])
    p_delx_eta = op_decl_dat(elems, 1, "double", delx_eta, "p_delx_eta"); 
    p_delx_zeta = op_decl_dat(elems, 1, "double", delx_zeta, "p_delx_zeta"); 
 
-   // //Declare Constants
+   p_elemBC = op_decl_dat(elems, 1, "int", elemBC, "p_elemBC");
+
+   std::cout << "Starting op2 eos temps\n";
+   //EOS temp variables
+   p_e_old = op_decl_dat(elems, 1, "double", e_old, "e_old"); 
+   p_delvc = op_decl_dat(elems, 1, "double", delvc, "delvc");
+   p_p_old = op_decl_dat(elems, 1, "double", p_old, "p_old");
+   p_q_old = op_decl_dat(elems, 1, "double", q_old, "q_old");
+   p_compression = op_decl_dat(elems, 1, "double", compression, "compression");
+   p_compHalfStep = op_decl_dat(elems, 1, "double", compHalfStep, "compHalfStep");
+   p_qq_old = op_decl_dat(elems, 1, "double", qq_old, "qq_old");
+   p_ql_old = op_decl_dat(elems, 1, "double", ql_old, "ql_old");
+   p_work = op_decl_dat(elems, 1, "double", work, "work");
+   p_p_new = op_decl_dat(elems, 1, "double", p_new, "p_new");
+   p_e_new = op_decl_dat(elems, 1, "double", e_new, "e_new");
+   p_q_new = op_decl_dat(elems, 1, "double", q_new, "q_new");
+   p_bvc = op_decl_dat(elems, 1, "double", bvc, "bvc"); ;
+   p_pbvc = op_decl_dat(elems, 1, "double", pbvc, "pbvc");
+   p_pHalfStep = op_decl_dat(elems, 1, "double", pHalfStep, "pHalfStep");
+
+   //Declare Constants
    op_decl_const(1, "double", &m_e_cut);
    op_decl_const(1, "double", &m_p_cut);
    op_decl_const(1, "double", &m_q_cut);
@@ -3962,6 +4259,7 @@ int main(int argc, char *argv[])
    op_decl_const(1, "double", &m_emin);
    op_decl_const(1, "double", &m_dvovmax);
    op_decl_const(1, "double", &m_refdens);
+   std::cout << "Done Declaring op2\n";
    op_diagnostic_output();
 
    // op_par_loop(test_e, "test_e", elems, 
