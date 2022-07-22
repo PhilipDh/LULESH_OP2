@@ -304,8 +304,6 @@ inline void IntegrateStressForElemsLoop(
     p_fz6[0] += fz_local[5];
     p_fz7[0] += fz_local[6];
     p_fz8[0] += fz_local[7];
-
-    // std::cout<< "X:" << fx_local[0] << ",Y: " << fy_local[0] << ",Z: " << fz_local[0] << "\n";
 }
 
 inline void CheckForNegativeElementVolume(double *determ){
@@ -423,42 +421,9 @@ inline void FBHourglassForceForElems(
     double *p_z8n,
     double *p_determ,
     double *p_ss,
-    double *p_elemMass
+    double *p_elemMass,
+    double *gamma_t
 ){
-    Real_t  gamma[4][8];
-
-    gamma[0][0] = Real_t( 1.);
-    gamma[0][1] = Real_t( 1.);
-    gamma[0][2] = Real_t(-1.);
-    gamma[0][3] = Real_t(-1.);
-    gamma[0][4] = Real_t(-1.);
-    gamma[0][5] = Real_t(-1.);
-    gamma[0][6] = Real_t( 1.);
-    gamma[0][7] = Real_t( 1.);
-    gamma[1][0] = Real_t( 1.);
-    gamma[1][1] = Real_t(-1.);
-    gamma[1][2] = Real_t(-1.);
-    gamma[1][3] = Real_t( 1.);
-    gamma[1][4] = Real_t(-1.);
-    gamma[1][5] = Real_t( 1.);
-    gamma[1][6] = Real_t( 1.);
-    gamma[1][7] = Real_t(-1.);
-    gamma[2][0] = Real_t( 1.);
-    gamma[2][1] = Real_t(-1.);
-    gamma[2][2] = Real_t( 1.);
-    gamma[2][3] = Real_t(-1.);
-    gamma[2][4] = Real_t( 1.);
-    gamma[2][5] = Real_t(-1.);
-    gamma[2][6] = Real_t( 1.);
-    gamma[2][7] = Real_t(-1.);
-    gamma[3][0] = Real_t(-1.);
-    gamma[3][1] = Real_t( 1.);
-    gamma[3][2] = Real_t(-1.);
-    gamma[3][3] = Real_t( 1.);
-    gamma[3][4] = Real_t( 1.);
-    gamma[3][5] = Real_t(-1.);
-    gamma[3][6] = Real_t( 1.);
-    gamma[3][7] = Real_t(-1.);
 
     Real_t hgfx[8], hgfy[8], hgfz[8] ;
 
@@ -470,54 +435,55 @@ inline void FBHourglassForceForElems(
     Real_t volinv=Real_t(1.0)/p_determ[0];
     Real_t ss1, mass1, volume13 ;
 
-    for(Index_t i1=0;i1<4;++i1){
+
+        for(Index_t i1=0;i1<4;++i1){
         Real_t hourmodx =
-            p_x8n[0] * gamma[i1][0] + p_x8n[0+1] * gamma[i1][1] +
-            p_x8n[0+2] * gamma[i1][2] + p_x8n[0+3] * gamma[i1][3] +
-            p_x8n[0+4] * gamma[i1][4] + p_x8n[0+5] * gamma[i1][5] +
-            p_x8n[0+6] * gamma[i1][6] + p_x8n[0+7] * gamma[i1][7];
+            p_x8n[0] * gamma_t[(i1*8)+0] + p_x8n[0+1] * gamma_t[(i1*8)+1] +
+            p_x8n[0+2] * gamma_t[(i1*8)+2] + p_x8n[0+3] * gamma_t[(i1*8)+3] +
+            p_x8n[0+4] * gamma_t[(i1*8)+4] + p_x8n[0+5] * gamma_t[(i1*8)+5] +
+            p_x8n[0+6] * gamma_t[(i1*8)+6] + p_x8n[0+7] * gamma_t[(i1*8)+7];
 
         Real_t hourmody =
-            p_y8n[0] * gamma[i1][0] + p_y8n[0+1] * gamma[i1][1] +
-            p_y8n[0+2] * gamma[i1][2] + p_y8n[0+3] * gamma[i1][3] +
-            p_y8n[0+4] * gamma[i1][4] + p_y8n[0+5] * gamma[i1][5] +
-            p_y8n[0+6] * gamma[i1][6] + p_y8n[0+7] * gamma[i1][7];
+            p_y8n[0] * gamma_t[(i1*8)+0] + p_y8n[0+1] * gamma_t[(i1*8)+1] +
+            p_y8n[0+2] * gamma_t[(i1*8)+2] + p_y8n[0+3] * gamma_t[(i1*8)+3] +
+            p_y8n[0+4] * gamma_t[(i1*8)+4] + p_y8n[0+5] * gamma_t[(i1*8)+5] +
+            p_y8n[0+6] * gamma_t[(i1*8)+6] + p_y8n[0+7] * gamma_t[(i1*8)+7];
 
         Real_t hourmodz =
-            p_z8n[0] * gamma[i1][0] + p_z8n[0+1] * gamma[i1][1] +
-            p_z8n[0+2] * gamma[i1][2] + p_z8n[0+3] * gamma[i1][3] +
-            p_z8n[0+4] * gamma[i1][4] + p_z8n[0+5] * gamma[i1][5] +
-            p_z8n[0+6] * gamma[i1][6] + p_z8n[0+7] * gamma[i1][7];
+            p_z8n[0] * gamma_t[(i1*8)+0] + p_z8n[0+1] * gamma_t[(i1*8)+1] +
+            p_z8n[0+2] * gamma_t[(i1*8)+2] + p_z8n[0+3] * gamma_t[(i1*8)+3] +
+            p_z8n[0+4] * gamma_t[(i1*8)+4] + p_z8n[0+5] * gamma_t[(i1*8)+5] +
+            p_z8n[0+6] * gamma_t[(i1*8)+6] + p_z8n[0+7] * gamma_t[(i1*8)+7];
 
-        hourgam[0][i1] = gamma[i1][0] -  volinv*(p_dvdx[0  ] * hourmodx +
+        hourgam[0][i1] = gamma_t[(i1*8)+0] -  volinv*(p_dvdx[0  ] * hourmodx +
                                                 p_dvdy[0  ] * hourmody +
                                                 p_dvdz[0  ] * hourmodz );
 
-        hourgam[1][i1] = gamma[i1][1] -  volinv*(p_dvdx[0+1] * hourmodx +
+        hourgam[1][i1] = gamma_t[(i1*8)+1] -  volinv*(p_dvdx[0+1] * hourmodx +
                                                 p_dvdy[0+1] * hourmody +
                                                 p_dvdz[0+1] * hourmodz );
 
-        hourgam[2][i1] = gamma[i1][2] -  volinv*(p_dvdx[0+2] * hourmodx +
+        hourgam[2][i1] = gamma_t[(i1*8)+2] -  volinv*(p_dvdx[0+2] * hourmodx +
                                                 p_dvdy[0+2] * hourmody +
                                                 p_dvdz[0+2] * hourmodz );
 
-        hourgam[3][i1] = gamma[i1][3] -  volinv*(p_dvdx[0+3] * hourmodx +
+        hourgam[3][i1] = gamma_t[(i1*8)+3] -  volinv*(p_dvdx[0+3] * hourmodx +
                                                 p_dvdy[0+3] * hourmody +
                                                 p_dvdz[0+3] * hourmodz );
 
-        hourgam[4][i1] = gamma[i1][4] -  volinv*(p_dvdx[0+4] * hourmodx +
+        hourgam[4][i1] = gamma_t[(i1*8)+4] -  volinv*(p_dvdx[0+4] * hourmodx +
                                                 p_dvdy[0+4] * hourmody +
                                                 p_dvdz[0+4] * hourmodz );
 
-        hourgam[5][i1] = gamma[i1][5] -  volinv*(p_dvdx[0+5] * hourmodx +
+        hourgam[5][i1] = gamma_t[(i1*8)+5] -  volinv*(p_dvdx[0+5] * hourmodx +
                                                 p_dvdy[0+5] * hourmody +
                                                 p_dvdz[0+5] * hourmodz );
 
-        hourgam[6][i1] = gamma[i1][6] -  volinv*(p_dvdx[0+6] * hourmodx +
+        hourgam[6][i1] = gamma_t[(i1*8)+6] -  volinv*(p_dvdx[0+6] * hourmodx +
                                                 p_dvdy[0+6] * hourmody +
                                                 p_dvdz[0+6] * hourmodz );
 
-        hourgam[7][i1] = gamma[i1][7] -  volinv*(p_dvdx[0+7] * hourmodx +
+        hourgam[7][i1] = gamma_t[(i1*8)+7] -  volinv*(p_dvdx[0+7] * hourmodx +
                                                 p_dvdy[0+7] * hourmody +
                                                 p_dvdz[0+7] * hourmodz );
     }
@@ -525,10 +491,8 @@ inline void FBHourglassForceForElems(
     /* compute forces */
     /* store forces into h arrays (force arrays) */
 
-    // ss1=domain.ss(i2);
     ss1=p_ss[0];
 
-    // mass1=domain.elemMass(i2);
     mass1=p_elemMass[0];
     volume13=CBRT(p_determ[0]);
 
@@ -627,6 +591,4 @@ inline void FBHourglassForceForElems(
     p_fx8[0] += hgfx[7];
     p_fy8[0] += hgfy[7];
     p_fz8[0] += hgfz[7];
-
-
 }
