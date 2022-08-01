@@ -3,31 +3,31 @@ cmake_minimum_required(VERSION 3.0)
 project(LULESH CXX)
 
 option(WITH_MPI    "Build LULESH with MPI"          TRUE)
-option(WITH_OPENMP "Build LULESH with OpenMP"       TRUE)
+option(WITH_OPENMP "Build LULESH with OpenMP"       FALSE)
 option(WITH_SILO   "Build LULESH with silo support" FALSE)
 option(WITH_OP2 "Build LULESH with OP2" TRUE)
+option(OP2_SEQ "Build with OP2 seq" FALSE)
+option(WITH_HDF5 "Build LULESH with HDF5" TRUE)
 
-if(WITH_OP2)
+if(WITH_HDF5)
   find_path(
-    OP2_INCLUDE_DIR
-    NAMES op_seq.h
-    HINTS $ENV{OP2_INSTALL_PATH}/op2/include
+    HDF5_INCLUDE_DIR
+    NAMES hdf5.h
+    HINTS /dcs/pg21/u2148990/Documents/diss/op2_deps/hdf5/include
     )
   find_library(
-    OP2_LIBRARY
-    NAMES op2_seq
-    HINTS $ENV{OP2_INSTALL_PATH}/op2/lib/)
-  
+    HDF5_LIBRARY
+    NAMES hdf5
+    HINTS /dcs/pg21/u2148990/Documents/diss/op2_deps/hdf5/lib)
+
   include(FindPackageHandleStandardArgs)
-  find_package_handle_standard_args(OP2 DEFAULT_MSG
-    OP2_LIBRARY
-    OP2_INCLUDE_DIR)
-  if(OP2_FOUND)
-    include_directories(${OP2_INCLUDE_DIR})
-    list(APPEND LULESH_EXTERNAL_LIBS ${OP2_LIBRARY})
+  find_package_handle_standard_args(HDF5 DEFAULT_MSG
+    HDF5_LIBRARY
+    HDF5_INCLUDE_DIR)
+  if(HDF5_FOUND)
+    include_directories(${HDF5_INCLUDE_DIR})
+    list(APPEND LULESH_EXTERNAL_LIBS ${HDF5_LIBRARY})
   endif()
-
-
 endif()
 if (WITH_MPI)
   find_package(MPI REQUIRED)
@@ -62,6 +62,42 @@ if (WITH_SILO)
     # there are additional dependencies (hdf5) which we don't know.
     # This would be fixed by silo providing a CMake package.
     list(APPEND LULESH_EXTERNAL_LIBS ${SILO_LIBRARY})
+  endif()
+endif()
+if(WITH_OP2)
+  if(OP2_SEQ)
+    find_path(
+      OP2_INCLUDE_DIR
+      NAMES op_seq.h
+      HINTS /dcs/pg21/u2148990/Documents/diss/OP2-Common/op2/include
+      )
+    find_library(
+      OP2_LIBRARY
+      NAMES op2_seq
+      HINTS /dcs/pg21/u2148990/Documents/diss/OP2-Common/op2/lib/)
+    include(FindPackageHandleStandardArgs)
+    find_package_handle_standard_args(OP2 DEFAULT_MSG
+      OP2_LIBRARY
+      OP2_INCLUDE_DIR)
+  else()
+    find_path(
+      OP2_INCLUDE_DIR
+      NAMES op_lib_mpi.h
+      HINTS /dcs/pg21/u2148990/Documents/diss/OP2-Common/op2/include
+      )
+    find_library(
+      OP2_LIBRARY
+      NAMES op2_mpi
+      HINTS /dcs/pg21/u2148990/Documents/diss/OP2-Common/op2/lib/)
+    
+    include(FindPackageHandleStandardArgs)
+    find_package_handle_standard_args(OP2 DEFAULT_MSG
+      OP2_LIBRARY
+      OP2_INCLUDE_DIR)
+  endif()
+  if(OP2_FOUND)
+    include_directories(${OP2_INCLUDE_DIR})
+    list(APPEND LULESH_EXTERNAL_LIBS ${OP2_LIBRARY})
   endif()
 endif()
 

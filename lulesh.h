@@ -707,7 +707,6 @@ Real_t CalcElemVolume( const Real_t x[8],
 void ParseCommandLineOptions(int argc, char *argv[],
                              Int_t myRank, struct cmdLineOpts *opts);
 void VerifyAndWriteFinalOutput(Real_t elapsed_time,
-                               Domain& locDom,
                                Int_t cycle,
                                Int_t nx,
                                Int_t numRanks,
