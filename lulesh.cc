@@ -196,22 +196,46 @@ const Real_t  m_refdens = Real_t(1.0);           // reference density
 #define BOUNDARY_NODE 0x01
 #define FILE_NAME_PATH "file_out.h5"
 
-#include "CalcForceForNodes.h"
-#include "CalcAccelerationForNodes.h"
-#include "CalcVelocityForNodes.h"
-#include "CalcPositionForNodes.h"
-#include "CalcKinematicsForElems.h"
-#include "CalcLagrangeElements.h"
-#include "CalcMonotonicQGradientsForElems.h"
-#include "UpdateVolumesForElems.h"
+#include "IntegrateStressForElemsLoop.h"
+#include "FBHourglassForceForElems.h"
+#include "CalcVolumeDerivatives.h"
+#include "CheckForNegativeElementVolume.h"
+#include "setForceToZero.h"
+#include "CalcAccelForNodes.h"
+#include "CalcVeloForNodes.h"
+#include "CalcPosForNodes.h"
+#include "CalcKinematicsForElem.h"
+#include "CalcLagrangeElemRemaining.h"
+#include "CalcMonotonicQGradientsForElem.h"
+#include "CalcHalfStepBVC.h"
+#include "CalcPHalfstep.h"
+#include "CalcBVC.h"
+#include "updateVolumesForElem.h"
 #include "NoExcessiveArtificialViscosity.h"
-#include "CalcMonotonicQRegionForElems.h"
-#include "ApplyMaterialPropertiesForElems.h"
-#include "CalcEnergyForElems.h"
-#include "CalcPressureForElems.h"
-#include "CalcSoundSpeedForElems.h"
-#include "CalcTimeConstraints.h"
-#include "ApplyAccelerationBoundaryConditionsForNodes.h"
+#include "CalcMonotonicQRegionForElem.h"
+#include "ALE3DRelevantCheck.h"
+#include "CopyEOSValsIntoArray.h"
+#include "CalcHalfSteps.h"
+#include "CheckEOSLowerBound.h"
+#include "CheckEOSUpperBound.h"
+#include "CalcEOSWork.h"
+#include "CopyTempEOSVarsBack.h"
+#include "CopyVelocityToTempArray.h"
+#include "ApplyLowerBoundToVelocity.h"
+#include "ApplyUpperBoundToVelocity.h"
+#include "CalcNewE.h"
+#include "CalcNewEStep2.h"
+#include "CalcNewEStep3.h"
+#include "CalcNewEStep4.h"
+#include "CalcQNew.h"
+#include "CalcPNew.h"
+#include "CalcSoundSpeedForElem.h"
+#include "BoundaryX.h"
+#include "BoundaryY.h"
+#include "BoundaryZ.h"
+#include "CalcHydroConstraint.h"
+#include "CalcCourantConstraint.h"
+#include "initStressTerms.h"
 // Define arrays and constants
 // Should maybe be moved to a header file to avoid clutter or to the main function to not be global
 // Element-centered
@@ -1095,6 +1119,9 @@ void readOp2VarsFromHDF5(char* file){
    nodes = op_decl_set_hdf5(file, "nodes");
    elems = op_decl_set_hdf5(file, "elems");
 
+   m_numElem = elems->size;
+   m_numNode = nodes->size;
+
    p_nodelist = op_decl_map_hdf5(elems, nodes, 8, file, "nodelist");
    
    p_lxim = op_decl_map_hdf5(elems, elems, 1, file, "lxim");
@@ -1181,7 +1208,344 @@ void readOp2VarsFromHDF5(char* file){
    p_bvc = op_decl_dat_hdf5(elems, 1, "double", file, "bvc"); ;
    p_pbvc = op_decl_dat_hdf5(elems, 1, "double", file, "pbvc");
    p_pHalfStep = op_decl_dat_hdf5(elems, 1, "double", file, "pHalfStep");
+
+   op_get_const_hdf5("deltatime", 1, "double", (char *)&m_deltatime,  file);
 }
+
+static inline
+void readAndInitVars(char* file){
+   nodes = op_decl_set_hdf5(file, "nodes");
+   elems = op_decl_set_hdf5(file, "elems");
+
+   m_numElem = elems->size;
+   m_numNode = nodes->size;
+
+   // Allocate Elems
+   // e = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   p = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   q = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   ss = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   v = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   delv = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   m_vdov = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   arealg = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   vnew = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   vnewc = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   // Allocate Nodes
+   xd = (Real_t*) malloc(m_numNode * sizeof(Real_t)); // Velocities
+   yd = (Real_t*) malloc(m_numNode * sizeof(Real_t));
+   zd = (Real_t*) malloc(m_numNode * sizeof(Real_t));
+   xdd = (Real_t*) malloc(m_numNode * sizeof(Real_t)); //Accelerations
+   ydd = (Real_t*) malloc(m_numNode * sizeof(Real_t));
+   zdd = (Real_t*) malloc(m_numNode * sizeof(Real_t));
+   m_fx = (Real_t*) malloc(m_numNode * sizeof(Real_t)); // Forces
+   m_fy = (Real_t*) malloc(m_numNode * sizeof(Real_t));
+   m_fz = (Real_t*) malloc(m_numNode * sizeof(Real_t));
+   ql = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   qq = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   //Temporary Vars
+   sigxx = (Real_t*) malloc(m_numElem* 3 * sizeof(Real_t));
+   determ = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+
+   dvdx = (Real_t*) malloc(m_numElem * 8 * sizeof(Real_t));
+   dvdy = (Real_t*) malloc(m_numElem * 8 * sizeof(Real_t));
+   dvdz = (Real_t*) malloc(m_numElem * 8 * sizeof(Real_t));
+   x8n = (Real_t*) malloc(m_numElem * 8 * sizeof(Real_t));
+   y8n = (Real_t*) malloc(m_numElem * 8 * sizeof(Real_t));
+   z8n = (Real_t*) malloc(m_numElem * 8 * sizeof(Real_t));
+
+   dxx = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   dyy = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   dzz = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+
+   delx_xi = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   delx_eta = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   delx_zeta = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+
+   delv_xi = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   delv_eta = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   delv_zeta = (Real_t*) malloc(m_numElem * sizeof(Real_t));
+   
+   //EOS Temp Vars
+   e_old = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   delvc = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   p_old = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   q_old = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   compression = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   compHalfStep = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   qq_old = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   ql_old = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   work = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   p_new = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   e_new = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   q_new = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   bvc = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   pbvc = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+   pHalfStep = (Real_t*) malloc(m_numElem *sizeof(Real_t));
+
+
+   for(Index_t i=0; i<m_numElem;++i){
+      p[i] = Real_t(0.0);
+      // e[i] = Real_t(0.0);
+      q[i] = Real_t(0.0);
+      ss[i] = Real_t(0.0);
+   }
+   // p_e = op_decl_dat(elems, 1, "double", e, "p_e");
+   p_p = op_decl_dat(elems, 1, "double", p, "p_p");
+   p_q = op_decl_dat(elems, 1, "double", q, "p_q");
+   p_ss = op_decl_dat(elems, 1, "double", ss, "p_ss");
+
+   for(Index_t i=0; i<m_numElem;++i){
+      v[i] = Real_t(1.0);
+   }
+   p_v = op_decl_dat(elems, 1, "double", v, "p_v");
+
+   for (Index_t i = 0; i<m_numNode;++i){
+      xd[i] = Real_t(0.0);
+      yd[i] = Real_t(0.0);
+      zd[i] = Real_t(0.0);
+   }
+   p_xd = op_decl_dat(nodes, 1, "double", xd, "p_xd");
+   p_yd = op_decl_dat(nodes, 1, "double", yd, "p_yd");
+   p_zd = op_decl_dat(nodes, 1, "double", zd, "p_zd");
+
+   for (Index_t i = 0; i<m_numNode;++i){
+   // for (Index_t i = 0; i<m_numNode*3;++i){
+      xdd[i] = Real_t(0.0);
+      ydd[i] = Real_t(0.0);
+      zdd[i] = Real_t(0.0);
+   }
+   p_xdd = op_decl_dat(nodes, 1, "double", xdd, "p_xdd");
+   p_ydd = op_decl_dat(nodes, 1, "double", ydd, "p_ydd");
+   p_zdd = op_decl_dat(nodes, 1, "double", zdd, "p_zdd");
+
+   p_ql = op_decl_dat(elems, 1, "double", ql, "p_ql");
+   p_qq = op_decl_dat(elems, 1, "double", qq, "p_qq");
+   p_delv = op_decl_dat(elems, 1, "double", delv, "p_delv");
+   p_vdov = op_decl_dat(elems, 1, "double", m_vdov, "p_vdov");
+   p_arealg = op_decl_dat(elems, 1, "double", arealg, "p_arealg");
+   p_vnew = op_decl_dat(elems, 1, "double", vnew, "p_vnew");
+   p_vnewc = op_decl_dat(elems, 1, "double", vnewc, "p_vnewc");
+   p_fx = op_decl_dat(nodes, 1, "double", m_fx, "p_fx");
+   p_fy = op_decl_dat(nodes, 1, "double", m_fy, "p_fy");
+   p_fz = op_decl_dat(nodes, 1, "double", m_fz, "p_fz");
+
+   //Temporary Vars
+   p_sigxx = op_decl_dat(elems, 3, "double", sigxx, "p_sigxx");
+   p_determ = op_decl_dat(elems, 1, "double", determ, "p_determ");
+
+   p_dxx = op_decl_dat(elems, 1, "double", dxx, "p_dxx");
+   p_dyy = op_decl_dat(elems, 1, "double", dyy, "p_dyy");
+   p_dzz = op_decl_dat(elems, 1, "double", dzz, "p_dzz");
+
+   p_dvdx = op_decl_dat(elems, 8, "double",dvdx, "dvdx");
+   p_dvdy = op_decl_dat(elems, 8, "double",dvdy, "dvdy");
+   p_dvdz = op_decl_dat(elems, 8, "double",dvdz, "dvdz");
+   p_x8n = op_decl_dat(elems, 8, "double",x8n, "x8n");
+   p_y8n = op_decl_dat(elems, 8, "double",y8n, "y8n");
+   p_z8n = op_decl_dat(elems, 8, "double",z8n, "z8n");
+
+   p_delv_xi = op_decl_dat(elems, 1, "double", delv_xi, "p_delv_xi"); 
+   p_delv_eta = op_decl_dat(elems, 1, "double", delv_eta, "p_delv_eta"); 
+   p_delv_zeta = op_decl_dat(elems, 1, "double", delv_zeta, "p_delv_zeta"); 
+
+   p_delx_xi = op_decl_dat(elems, 1, "double", delx_xi, "p_delx_xi"); 
+   p_delx_eta = op_decl_dat(elems, 1, "double", delx_eta, "p_delx_eta"); 
+   p_delx_zeta = op_decl_dat(elems, 1, "double", delx_zeta, "p_delx_zeta"); 
+   //EOS temp variables
+   p_e_old = op_decl_dat(elems, 1, "double", e_old, "e_old"); 
+   p_delvc = op_decl_dat(elems, 1, "double", delvc, "delvc");
+   p_p_old = op_decl_dat(elems, 1, "double", p_old, "p_old");
+   p_q_old = op_decl_dat(elems, 1, "double", q_old, "q_old");
+   p_compression = op_decl_dat(elems, 1, "double", compression, "compression");
+   p_compHalfStep = op_decl_dat(elems, 1, "double", compHalfStep, "compHalfStep");
+   p_qq_old = op_decl_dat(elems, 1, "double", qq_old, "qq_old");
+   p_ql_old = op_decl_dat(elems, 1, "double", ql_old, "ql_old");
+   p_work = op_decl_dat(elems, 1, "double", work, "work");
+   p_p_new = op_decl_dat(elems, 1, "double", p_new, "p_new");
+   p_e_new = op_decl_dat(elems, 1, "double", e_new, "e_new");
+   p_q_new = op_decl_dat(elems, 1, "double", q_new, "q_new");
+   p_bvc = op_decl_dat(elems, 1, "double", bvc, "bvc"); ;
+   p_pbvc = op_decl_dat(elems, 1, "double", pbvc, "pbvc");
+   p_pHalfStep = op_decl_dat(elems, 1, "double", pHalfStep, "pHalfStep");
+
+   //HDF5 Read
+   p_nodelist = op_decl_map_hdf5(elems, nodes, 8, file, "nodelist");
+   p_lxim = op_decl_map_hdf5(elems, elems, 1, file, "lxim");
+   p_lxip = op_decl_map_hdf5(elems, elems, 1, file, "lxip");
+   p_letam = op_decl_map_hdf5(elems, elems, 1, file, "letam");
+   p_letap = op_decl_map_hdf5(elems, elems, 1, file, "letap");
+   p_lzetam = op_decl_map_hdf5(elems, elems, 1, file, "lzetam");
+   p_lzetap = op_decl_map_hdf5(elems, elems, 1, file, "lzetap");
+
+   p_x = op_decl_dat_hdf5(nodes, 1, "double", file, "p_x");
+   p_y = op_decl_dat_hdf5(nodes, 1, "double", file, "p_y");
+   p_z = op_decl_dat_hdf5(nodes, 1, "double", file, "p_z");
+   p_nodalMass = op_decl_dat_hdf5(nodes, 1, "double", file, "p_nodalMass");
+   p_volo = op_decl_dat_hdf5(elems, 1, "double", file, "p_volo");
+   p_e = op_decl_dat_hdf5(elems, 1, "double", file, "p_e");
+   p_elemMass = op_decl_dat_hdf5(elems, 1, "double", file, "p_elemMass");
+   p_elemBC = op_decl_dat_hdf5(elems, 1, "int", file, "p_elemBC");
+   p_t_symmX = op_decl_dat_hdf5(nodes, 1, "int", file, "t_symmX");
+   p_t_symmY = op_decl_dat_hdf5(nodes, 1, "int", file, "t_symmY");
+   p_t_symmZ = op_decl_dat_hdf5(nodes, 1, "int", file, "t_symmZ");
+   op_get_const_hdf5("deltatime", 1, "double", (char *)&m_deltatime,  file);
+
+      //! Start Create Region Sets
+   srand(0);
+   Index_t myRank = 0;
+
+   m_numReg = 1;
+   m_regElemSize = (Index_t*) malloc(m_numReg * sizeof(Index_t));
+   m_regElemlist = (Index_t**) malloc(m_numReg * sizeof(Index_t));
+   Index_t nextIndex = 0;
+   //if we only have one region just fill it
+   // Fill out the regNumList with material numbers, which are always
+   // the region index plus one 
+   if(m_numReg == 1){
+      m_regNumList = (Index_t*) malloc(m_numElem * sizeof(Index_t));
+      while(nextIndex < m_numElem){
+         m_regNumList[nextIndex] = 1;
+         nextIndex++;
+      }
+      m_regElemSize[0] = 0;
+   } else {//If we have more than one region distribute the elements.
+      Int_t regionNum;
+      Int_t regionVar;
+      Int_t lastReg = -1;
+      Int_t binSize;
+      Index_t elements;
+      Index_t runto = 0;
+      Int_t costDenominator = 0;
+      Int_t* regBinEnd = (Int_t*) malloc(m_numReg * sizeof(Int_t));
+      //Determine the relative weights of all the regions.  This is based off the -b flag.  Balance is the value passed into b.  
+      for(Index_t i=0; i<m_numReg;++i){
+         m_regElemSize[i] = 0;
+         costDenominator += pow((i+1), 1);//Total sum of all regions weights
+         regBinEnd[i] = costDenominator;  //Chance of hitting a given region is (regBinEnd[i] - regBinEdn[i-1])/costDenominator
+      }
+      //Until all elements are assigned
+      while (nextIndex < m_numElem) {
+         //pick the region
+         regionVar = rand() % costDenominator;
+         Index_t i = 0;
+         while(regionVar >= regBinEnd[i]) i++;
+         //rotate the regions based on MPI rank.  Rotation is Rank % m_numRegions this makes each domain have a different region with 
+         //the highest representation
+         regionNum = ((i+myRank)% m_numReg) +1;
+         while(regionNum == lastReg){
+            regionVar = rand() % costDenominator;
+            i = 0;
+            while(regionVar >= regBinEnd[i]) i++;
+            regionNum = ((i + myRank) % m_numReg) + 1;
+         }
+         //Pick the bin size of the region and determine the number of elements.
+         binSize = rand() % 1000;
+         if(binSize < 773) {
+	         elements = rand() % 15 + 1;
+	      }
+	      else if(binSize < 937) {
+	         elements = rand() % 16 + 16;
+	      }
+	      else if(binSize < 970) {
+	         elements = rand() % 32 + 32;
+	      }
+	      else if(binSize < 974) {
+	         elements = rand() % 64 + 64;
+	      } 
+	      else if(binSize < 978) {
+	         elements = rand() % 128 + 128;
+	      }
+	      else if(binSize < 981) {
+	         elements = rand() % 256 + 256;
+	      }
+	      else
+	         elements = rand() % 1537 + 512;
+         runto = elements + nextIndex;
+	      //Store the elements.  If we hit the end before we run out of elements then just stop.
+         while (nextIndex < runto && nextIndex < m_numElem) {
+	         m_regNumList[nextIndex] = regionNum;
+	         nextIndex++;
+	      }
+         lastReg = regionNum;
+      }
+      delete [] regBinEnd; 
+   }
+      // Convert m_regNumList to region index sets
+   // First, count size of each region 
+   for (Index_t i=0 ; i<m_numElem ; ++i) {
+      int r = m_regNumList[i]-1; // region index == regnum-1
+      m_regElemSize[r]++;
+   }
+   // Second, allocate each region index set
+   for (Index_t i=0 ; i<m_numReg ; ++i) {
+      m_regElemlist[i] = (Index_t*) malloc(m_regElemSize[i]*sizeof(Index_t));
+      m_regElemSize[i] = 0;
+   }
+   // Third, fill index sets
+   for (Index_t i=0 ; i<m_numElem ; ++i) {
+      Index_t r = m_regNumList[i]-1;       // region index == regnum-1
+      Index_t regndx = m_regElemSize[r]++; // Note increment
+      m_regElemlist[r][regndx] = i;
+   }
+   //! End Create Region Sets
+   // free(e);
+   free(p);
+   free(q);
+   free(ss);
+   free(v);
+   free(delv);
+   free(m_vdov);
+   free(arealg);
+   free(vnew);
+   free(vnewc);
+   free(xd);
+   free(yd);
+   free(zd);
+   free(xdd);
+   free(ydd);
+   free(zdd);
+   free(m_fx);
+   free(m_fy);
+   free(m_fz);
+   free(ql);
+   free(qq);
+   free(sigxx);
+   free(determ);
+   free(dvdx);
+   free(dvdy);
+   free(dvdz);
+   free(x8n);
+   free(y8n);
+   free(z8n);
+   free(dxx);
+   free(dyy);
+   free(dzz);
+   free(delx_xi);
+   free(delx_eta);
+   free(delx_zeta);
+   free(delv_xi);
+   free(delv_eta);
+   free(delv_zeta);
+   free(e_old);
+   free(delvc);
+   free(p_old);
+   free(q_old);
+   free(compression);
+   free(compHalfStep);
+   free(qq_old);
+   free(ql_old);
+   free(work);
+   free(p_new);
+   free(e_new);
+   free(q_new);
+   free(bvc);
+   free(pbvc);
+   free(pHalfStep);
+
+
+}
+
 /* Work Routines */
 
 static inline
@@ -1315,10 +1679,22 @@ void InitStressTermsForElems()
 {
    //
    // pull in the stresses appropriate to the hydro integration
+
+      // double* test = (double*) malloc(elems->size *3* sizeof(double));
+      // op_fetch_data(p_sigxx, test);
+      // for(int i = 0; i<elems->size*3; i++){
+      //    if(myRank == 7)
+      //       std::cout << test[i];
+      // }
+
+      // if(myRank == 7)
+      //    std::cout << "done";
+   // std::cout<<"init stress at " << myRank << "\n";
    op_par_loop(initStressTerms, "initStressTerms", elems,
                op_arg_dat(p_sigxx, -1, OP_ID, 3, "double", OP_WRITE),
-               op_arg_dat(p_q, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_dat(p_p, -1, OP_ID, 1, "double", OP_READ));
+               op_arg_dat(p_p, -1, OP_ID, 1, "double", OP_READ),
+               op_arg_dat(p_q, -1, OP_ID, 1, "double", OP_READ));
+   // MPI_Barrier(MPI_COMM_WORLD);
 // #pragma omp parallel for firstprivate(numElem)
 //    for (Index_t i = 0 ; i < numElem ; ++i){
 //       // sigxx[i] = sigyy[i] = sigzz[i] =  - domain.p(i) - domain.q(i) ;
@@ -1820,8 +2196,7 @@ void CalcFBHourglassForceForElems()
    gamma_t[31] = Real_t(-1.);
 /*************************************************/
 /*    compute the hourglass modes */
-
-   // std::cout << "hg force at " << myRank << "\n";
+   // std::cout << "hg force at " << myRank << "bit is set to " << p_xd->dirtybit<<"\n";
    op_par_loop(FBHourglassForceForElems, "CalcFBHourglassForceForElems", elems,
                op_arg_dat(p_xd, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_xd, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_xd, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 7, p_nodelist, 1, "double", OP_READ),
                op_arg_dat(p_yd, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_yd, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_yd, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 7, p_nodelist, 1, "double", OP_READ),
@@ -2110,7 +2485,6 @@ void CalcHourglassControlForElems()
    // op_dat p_x8n = op_decl_dat_temp(elems, 8, "double",x8n, "x8n");
    // op_dat p_y8n = op_decl_dat_temp(elems, 8, "double",y8n, "y8n");
    // op_dat p_z8n = op_decl_dat_temp(elems, 8, "double",z8n, "z8n");
-   
    op_par_loop(CalcVolumeDerivatives, "CalcVolumeDerivatives", elems,
                op_arg_dat(p_x, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 7, p_nodelist, 1, "double", OP_READ),
                op_arg_dat(p_y, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 7, p_nodelist, 1, "double", OP_READ),
@@ -2205,7 +2579,7 @@ void CalcVolumeForceForElems()
 
       // call elemlib stress integration loop to produce nodal forces from
       // material stresses.
-      // op_print("Integrate stress");
+      std::cout<<"Integrate stress at " << myRank << "\n";
       IntegrateStressForElems() ;
 
       // check for negative element volume
@@ -2223,7 +2597,6 @@ void CalcVolumeForceForElems()
 //          }
 //       }
 
-      // MPI_Barrier(MPI_COMM_WORLD);
       CalcHourglassControlForElems() ;
       //op_free_dat_temp(determ);
       //op_free_dat_temp(sigxx);
@@ -2411,11 +2784,6 @@ void LagrangeNodal()
    Domain_member fieldData[6] ;
 #endif
 
-   // const Real_t delt = domain.deltatime() ;
-   const Real_t delt = m_deltatime ;
-   // Real_t u_cut = domain.u_cut() ;
-   Real_t u_cut = m_u_cut ;
-
   /* time of boundary condition evaluation is beginning of step for force and
    * acceleration boundary conditions. */
 //   op_print("Force For Nodes");
@@ -2428,7 +2796,6 @@ void LagrangeNodal()
    //          false, false) ;
 #endif
 #endif
-   
    // std::cout << "Acceleration at " << myRank << "\n";
    CalcAccelerationForNodes();
    // std::cout << "BCs at " << myRank << "\n";
@@ -3494,7 +3861,7 @@ void CalcEnergyForElems(Real_t* p_new, Real_t* e_new, Real_t* q_new,
                op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_RW),
                op_arg_dat(p_work, -1, OP_ID, 1, "double", OP_READ),
                op_arg_gbl(&e_cut, 1, "double", OP_READ),
-               op_arg_gbl(&emin, 1, "double", OP_WRITE)
+               op_arg_gbl(&emin, 1, "double", OP_READ)
    );
 // #pragma omp parallel for firstprivate(length, emin, e_cut)
 //    for (Index_t i = 0 ; i < length ; ++i) {
@@ -4278,9 +4645,9 @@ int main(int argc, char *argv[])
    m_numElem = edgeElems * edgeElems * edgeElems;
    m_numNode = edgeNodes * edgeNodes * edgeNodes;
 
-   allocateElems();
-   allocateNodes();
-   initialise(col,row,plane,opts.nx,side,opts.numReg,opts.balance, opts.cost);
+   // allocateElems();
+   // allocateNodes();
+   // initialise(col,row,plane,opts.nx,side,opts.numReg,opts.balance, opts.cost);
 
    m_dtfixed = Real_t(-1.0e-6) ; // Negative means use courant condition
    m_stoptime  = Real_t(1.0e-2); // *Real_t(edgeElems*tp/45.0) ;
@@ -4317,16 +4684,18 @@ int main(int argc, char *argv[])
    op_decl_const(1, "double", &m_refdens);
 
    char file[] = FILE_NAME_PATH;
+   readAndInitVars(file);
    // readOp2VarsFromHDF5(file);
-   initOp2Vars();
-   // int siz = op_get_size(elems);
-   // op_printf("Size: %d\n", siz);
+   // initOp2Vars();
+   int siz = op_get_size(elems);
+   std::cout <<  "Global Size: " << siz << ", Local Elems: " << elems->size << ", Local Nodes: "<< nodes->size << "\n";
+
    op_diagnostic_output();
-
-   // op_partition("BLOCK", "ANY", NULL, NULL, NULL);
-
+   op_partition("BLOCK", "ANY", NULL, NULL, NULL);
 
    // op_dump_to_hdf5("file_out.h5");
+   // op_write_const_hdf5("deltatime", 1, "double", (char*)&m_deltatime, FILE_NAME_PATH);
+   MPI_Barrier(MPI_COMM_WORLD);
    
 
 #if USE_MPI   
