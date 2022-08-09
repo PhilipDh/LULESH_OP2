@@ -1,7 +1,7 @@
 inline void CalcPosForNodes(
                             double *x, double *y, double *z,
-                            double *xd, double *yd, double *zd,
-                            double *dt
+                            const double *xd, const double *yd, const double *zd,
+                            const double *dt
 ){
 //   domain.x(i) += domain.xd(i) * dt ;
     x[0] += xd[0] * (*dt) ;

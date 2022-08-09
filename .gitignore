@@ -8,3 +8,10 @@ LULESH_OLD/
 *.0
 CMakeFiles/
 .vscode/
+cuda/
+openacc/
+openmp/
+openmp4/
+seq/
+build/
+*.d

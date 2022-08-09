@@ -1,7 +1,7 @@
 inline void CalcLagrangeElemRemaining(
                                     double *dxx, double *dyy, double *dzz,
                                     double *m_vdov,
-                                    double *vnew
+                                    const double *vnew
 
 ){
     // calc strain rate and apply as constraint (only done in FB element)
@@ -24,6 +24,6 @@ inline void CalcLagrangeElemRemaining(
     // if (domain.vnew(k) <= double(0.0))
     if (vnew[0] <= double(0.0))
     {
-        exit(VolumeError);
+        // exit(-1); // Volume Error
     }
 }

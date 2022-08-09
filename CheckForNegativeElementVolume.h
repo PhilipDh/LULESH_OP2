@@ -1,5 +1,5 @@
-inline void CheckForNegativeElementVolume(double *determ){
+inline void CheckForNegativeElementVolume(const double *determ){
     if(determ[0] <= 0.0){
-        exit(VolumeError);
+        // exit(-1); // Volume Error
     }
 }

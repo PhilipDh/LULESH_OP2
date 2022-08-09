@@ -1,40 +1,70 @@
+// Stuff needed for boundary conditions
+// 2 BCs on each of 6 hexahedral faces (12 bits)
+#define XI_M        0x00007
+#define XI_M_SYMM   0x00001
+#define XI_M_FREE   0x00002
+#define XI_M_COMM   0x00004
+
+#define XI_P        0x00038
+#define XI_P_SYMM   0x00008
+#define XI_P_FREE   0x00010
+#define XI_P_COMM   0x00020
+
+#define ETA_M       0x001c0
+#define ETA_M_SYMM  0x00040
+#define ETA_M_FREE  0x00080
+#define ETA_M_COMM  0x00100
+
+#define ETA_P       0x00e00
+#define ETA_P_SYMM  0x00200
+#define ETA_P_FREE  0x00400
+#define ETA_P_COMM  0x00800
+
+#define ZETA_M      0x07000
+#define ZETA_M_SYMM 0x01000
+#define ZETA_M_FREE 0x02000
+#define ZETA_M_COMM 0x04000
+
+#define ZETA_P      0x38000
+#define ZETA_P_SYMM 0x08000
+#define ZETA_P_FREE 0x10000
+#define ZETA_P_COMM 0x20000
+
 inline void CalcMonotonicQRegionForElem(
-    double *delv_xi, double *delv_xi_lxim, double *delv_xi_lxip,
-    double *delv_eta, double *delv_eta_letam, double *delv_eta_letap,
-    double *delv_zeta, double *delv_zeta_lzetam, double *delv_zeta_lzetap,
-    double *delx_xi, double *delx_eta, double *delx_zeta,
-    double *elemBC,
-    double *m_vdov,
+    const double *delv_xi, const double *delv_xi_lxim, const double *delv_xi_lxip,
+    const double *delv_eta, const double *delv_eta_letam, const double *delv_eta_letap,
+    const double *delv_zeta, const double *delv_zeta_lzetam, const double *delv_zeta_lzetap,
+    const double *delx_xi, const double *delx_eta, const double *delx_zeta,
+    const int *elemBC,
+    const double *m_vdov,
     double *qq, double *ql,
-    double *elemMass, double *volo, double *vnew,
-    double *ptiny,
-    double *monoq_limiter_mult,
-    double *monoq_max_slope
+    const double *elemMass, const double *volo, const double *vnew,
+    const double *ptiny,
+    const double *monoq_limiter_mult,
+    const double *monoq_max_slope
 ){
-    Real_t qlin, qquad ;
-    Real_t phixi, phieta, phizeta ;
-    Real_t delvm = 0.0, delvp =0.0;
-    Int_t bcMask = elemBC[0] ;
+    double qlin, qquad ;
+    double phixi, phieta, phizeta ;
+    double delvm = 0.0, delvp =0.0;
+    int bcMask = elemBC[0] ;
 
-    Real_t norm = Real_t(1.) / (delv_xi[0]+ (*ptiny) ) ;
+    double norm = double(1.) / (delv_xi[0]+ (*ptiny) ) ;
 
-    switch (bcMask & XI_M) {
-    case XI_M_COMM: /* needs comm data */
+    switch (bcMask & 0x00007) { //XI_M
+    case 0x00004: /* needs comm data */ //XI_M_COMM
     case 0:         delvm = delv_xi_lxim[0]; break ;
-    case XI_M_SYMM: delvm = delv_xi[0] ;       break ;
-    case XI_M_FREE: delvm = Real_t(0.0) ;      break ;
-    default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                            __FILE__, __LINE__);
+    case 0x00001: delvm = delv_xi[0] ;       break ; //XI_M_SYMM
+    case 0x00002: delvm = double(0.0) ;      break ; //XI_M_FREE
+    default:          //fprintf(stderr, "Error in switch at %s line %d\n",__FILE__, __LINE__);
         delvm = 0; /* ERROR - but quiets the compiler */
         break;
     }
-    switch (bcMask & XI_P) {
-    case XI_P_COMM: /* needs comm data */
+    switch (bcMask & 0x00038) { //XI_P
+    case 0x00020: /* needs comm data */ //XI_P_COMM
     case 0:         delvp = delv_xi_lxip[0] ; break ;
-    case XI_P_SYMM: delvp = delv_xi[0] ;       break ;
-    case XI_P_FREE: delvp = Real_t(0.0) ;      break ;
-    default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                            __FILE__, __LINE__);
+    case 0x00008: delvp = delv_xi[0] ;       break ; //XI_P_FREE
+    case 0x00010: delvp = double(0.0) ;      break ; //XI_P_FREE
+    default:          //fprintf(stderr, "Error in switch at %s line %d\n",__FILE__, __LINE__);
         delvp = 0; /* ERROR - but quiets the compiler */
         break;
     }
@@ -42,36 +72,34 @@ inline void CalcMonotonicQRegionForElem(
     delvm = delvm * norm ;
     delvp = delvp * norm ;
 
-    phixi = Real_t(.5) * ( delvm + delvp ) ;
+    phixi = double(.5) * ( delvm + delvp ) ;
 
     delvm *= (*monoq_limiter_mult) ;
     delvp *= (*monoq_limiter_mult) ;
 
     if ( delvm < phixi ) phixi = delvm ;
     if ( delvp < phixi ) phixi = delvp ;
-    if ( phixi < Real_t(0.)) phixi = Real_t(0.) ;
+    if ( phixi < double(0.)) phixi = double(0.) ;
     if ( phixi > (*monoq_max_slope)) phixi = (*monoq_max_slope);
 
     /*  phieta     */
-    norm = Real_t(1.) / ( delv_eta[0] + (*ptiny) ) ;
+    norm = double(1.) / ( delv_eta[0] + (*ptiny) ) ;
 
-    switch (bcMask & ETA_M) {
-        case ETA_M_COMM: /* needs comm data */
-        case 0:          delvm = delv_eta_letam[0] ; break ;
-        case ETA_M_SYMM: delvm = delv_eta[0] ;        break ;
-        case ETA_M_FREE: delvm = Real_t(0.0) ;        break ;
-        default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                __FILE__, __LINE__);
+    switch (bcMask & 0x001c0) { //ETA_M
+        case 0x00100: /* needs comm data */ // ETA_M_COMM
+        case 0:          delvm = delv_eta_letam[0] ; break ; 
+        case 0x00040: delvm = delv_eta[0] ;        break ; // ETA_M_SYMM
+        case 0x00080: delvm = double(0.0) ;        break ; // ETA_M_FREE
+        default:          //fprintf(stderr, "Error in switch at %s line %d\n",__FILE__, __LINE__);
         delvm = 0; /* ERROR - but quiets the compiler */
         break;
     }
-    switch (bcMask & ETA_P) {
-        case ETA_P_COMM: /* needs comm data */
-        case 0:          delvp = delv_eta_letap[0] ; break ;
-        case ETA_P_SYMM: delvp = delv_eta[0] ;        break ;
-        case ETA_P_FREE: delvp = Real_t(0.0) ;        break ;
-        default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                __FILE__, __LINE__);
+    switch (bcMask & 0x00e00) { //ETA_P
+        case 0x00800: /* needs comm data */  //ETA_P_COMM
+        case 0:          delvp = delv_eta_letap[0] ; break ; 
+        case 0x00200: delvp = delv_eta[0] ;        break ; // ETA_P_SYMM
+        case 0x00400: delvp = double(0.0) ;        break ; // ETA_P_FREE
+        default:          //fprintf(stderr, "Error in switch at %s line %d\n",__FILE__, __LINE__);
         delvp = 0; /* ERROR - but quiets the compiler */
         break;
     }
@@ -79,39 +107,35 @@ inline void CalcMonotonicQRegionForElem(
     delvm = delvm * norm ;
     delvp = delvp * norm ;
 
-    phieta = Real_t(.5) * ( delvm + delvp ) ;
+    phieta = double(.5) * ( delvm + delvp ) ;
 
     delvm *= (*monoq_limiter_mult) ;
     delvp *= (*monoq_limiter_mult) ;
 
     if ( delvm  < phieta ) phieta = delvm ;
     if ( delvp  < phieta ) phieta = delvp ;
-    if ( phieta < Real_t(0.)) phieta = Real_t(0.) ;
+    if ( phieta < double(0.)) phieta = double(0.) ;
     if ( phieta > (*monoq_max_slope))  phieta = (*monoq_max_slope);
 
     /*  phizeta     */
-    // norm = Real_t(1.) / ( domain.delv_zeta(ielem) + ptiny ) ;
-    norm = Real_t(1.) / ( delv_zeta[0] + (*ptiny) ) ;
+    // norm = double(1.) / ( domain.delv_zeta(ielem) + ptiny ) ;
+    norm = double(1.) / ( delv_zeta[0] + (*ptiny) ) ;
 
-    switch (bcMask & ZETA_M) {
-        case ZETA_M_COMM: /* needs comm data */
-        // case 0:           delvm = domain.delv_zeta(domain.lzetam(ielem)) ; break ;
+    switch (bcMask & 0x07000) { //ZETA_M
+        case 0x04000: /* needs comm data */ // ZETA_M_COMM
         case 0:           delvm = delv_zeta_lzetam[0] ; break ;
-        case ZETA_M_SYMM: delvm = delv_zeta[0] ;         break ;
-        case ZETA_M_FREE: delvm = Real_t(0.0) ;          break ;
-        default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                __FILE__, __LINE__);
+        case 0x01000: delvm = delv_zeta[0] ;         break ; // ZETA_M_SYMM
+        case 0x02000: delvm = double(0.0) ;          break ; // ZETA_M_FREE
+        default:          //fprintf(stderr, "Error in switch at %s line %d\n",__FILE__, __LINE__);
         delvm = 0; /* ERROR - but quiets the compiler */
         break;
     }
-    switch (bcMask & ZETA_P) {
-        case ZETA_P_COMM: /* needs comm data */
-        // case 0:           delvp = domain.delv_zeta(domain.lzetap(ielem)) ; break ;
+    switch (bcMask & 0x38000) { //ZETA_P
+        case 0x20000: /* needs comm data */ // ZETA_P_COMM
         case 0:           delvp = delv_zeta_lzetap[0] ; break ;
-        case ZETA_P_SYMM: delvp = delv_zeta[0] ;         break ;
-        case ZETA_P_FREE: delvp = Real_t(0.0) ;          break ;
-        default:          fprintf(stderr, "Error in switch at %s line %d\n",
-                                __FILE__, __LINE__);
+        case 0x08000: delvp = delv_zeta[0] ;         break ; // ZETA_P_SYMM
+        case 0x10000: delvp = double(0.0) ;          break ; // ZETA_P_FREE
+        default:          //fprintf(stderr, "Error in switch at %s line %d\n",__FILE__, __LINE__);
         delvp = 0; /* ERROR - but quiets the compiler */
         break;
     }
@@ -119,41 +143,41 @@ inline void CalcMonotonicQRegionForElem(
     delvm = delvm * norm ;
     delvp = delvp * norm ;
 
-    phizeta = Real_t(.5) * ( delvm + delvp ) ;
+    phizeta = double(.5) * ( delvm + delvp ) ;
 
     delvm *= (*monoq_limiter_mult) ;
     delvp *= (*monoq_limiter_mult) ;
 
     if ( delvm   < phizeta ) phizeta = delvm ;
     if ( delvp   < phizeta ) phizeta = delvp ;
-    if ( phizeta < Real_t(0.)) phizeta = Real_t(0.);
+    if ( phizeta < double(0.)) phizeta = double(0.);
     if ( phizeta > (*monoq_max_slope)  ) phizeta = (*monoq_max_slope);
 
     /* Remove length scale */
-    if ( m_vdov[0] > Real_t(0.) )  {
-        qlin  = Real_t(0.) ;
-        qquad = Real_t(0.) ;
+    if ( m_vdov[0] > double(0.) )  {
+        qlin  = double(0.) ;
+        qquad = double(0.) ;
     }
     else {
-        Real_t delvxxi   = delv_xi[0]   * delx_xi[0]   ;
-        Real_t delvxeta  = delv_eta[0]  * delx_eta[0]  ;
-        Real_t delvxzeta = delv_zeta[0] * delx_zeta[0] ;
+        double delvxxi   = delv_xi[0]   * delx_xi[0]   ;
+        double delvxeta  = delv_eta[0]  * delx_eta[0]  ;
+        double delvxzeta = delv_zeta[0] * delx_zeta[0] ;
 
-        if ( delvxxi   > Real_t(0.) ) delvxxi   = Real_t(0.) ;
-        if ( delvxeta  > Real_t(0.) ) delvxeta  = Real_t(0.) ;
-        if ( delvxzeta > Real_t(0.) ) delvxzeta = Real_t(0.) ;
+        if ( delvxxi   > double(0.) ) delvxxi   = double(0.) ;
+        if ( delvxeta  > double(0.) ) delvxeta  = double(0.) ;
+        if ( delvxzeta > double(0.) ) delvxzeta = double(0.) ;
 
-        Real_t rho = elemMass[0] / (volo[0] * vnew[0]) ;
+        double rho = elemMass[0] / (volo[0] * vnew[0]) ;
 
         qlin = -m_qlc_monoq * rho *
-        (  delvxxi   * (Real_t(1.) - phixi) +
-            delvxeta  * (Real_t(1.) - phieta) +
-            delvxzeta * (Real_t(1.) - phizeta)  ) ;
+        (  delvxxi   * (double(1.) - phixi) +
+            delvxeta  * (double(1.) - phieta) +
+            delvxzeta * (double(1.) - phizeta)  ) ;
 
         qquad = m_qqc_monoq * rho *
-        (  delvxxi*delvxxi     * (Real_t(1.) - phixi*phixi) +
-            delvxeta*delvxeta   * (Real_t(1.) - phieta*phieta) +
-            delvxzeta*delvxzeta * (Real_t(1.) - phizeta*phizeta)  ) ;
+        (  delvxxi*delvxxi     * (double(1.) - phixi*phixi) +
+            delvxeta*delvxeta   * (double(1.) - phieta*phieta) +
+            delvxzeta*delvxzeta * (double(1.) - phizeta*phizeta)  ) ;
     }
 
     qq[0] = qquad ;

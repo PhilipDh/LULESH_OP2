@@ -1,5 +1,5 @@
-inline void CalcHydroConstraint(double *vdov, double *dthydro){
-    Real_t dtdvov = m_dvovmax / (FABS(vdov[0])+Real_t(1.e-20)) ;
+inline void CalcHydroConstraint(const double *vdov, double *dthydro){
+    double dtdvov = m_dvovmax / (fabs(vdov[0])+double(1.e-20)) ;
 
     if ( (*dthydro) > dtdvov ) {
             (*dthydro) = dtdvov ;

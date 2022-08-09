@@ -1,7 +1,5 @@
-inline void NoExcessiveArtificialViscosity(
-    double *q
-){
+inline void NoExcessiveArtificialViscosity(const double *q){
     if ( q[0] > m_qstop ) {
-        exit(QStopError);
+        // exit(-2); // Q Stop Error
     }
 }

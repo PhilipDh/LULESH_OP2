@@ -1,3 +1,3 @@
-inline void CopyVelocityToTempArray(double *vnewc, double *vnew){
-    vnewc[0] = vnew[0] ;
+inline void CopyVelocityToTempArray(double *vnewc, const double *vnew){
+    *vnewc = *vnew ;
 }

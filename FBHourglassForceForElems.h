@@ -1,47 +1,47 @@
 inline void FBHourglassForceForElems(
-    double *p_xd1, double *p_xd2, double *p_xd3, double *p_xd4, double *p_xd5, double *p_xd6, double *p_xd7, double *p_xd8,
-    double *p_yd1, double *p_yd2, double *p_yd3, double *p_yd4, double *p_yd5, double *p_yd6, double *p_yd7, double *p_yd8,
-    double *p_zd1, double *p_zd2, double *p_zd3, double *p_zd4, double *p_zd5, double *p_zd6, double *p_zd7, double *p_zd8,
+    const double *p_xd1, const double *p_xd2, const double *p_xd3, const double *p_xd4, const double *p_xd5, const double *p_xd6, const double *p_xd7, const double *p_xd8,
+    const double *p_yd1, const double *p_yd2, const double *p_yd3, const double *p_yd4, const double *p_yd5, const double *p_yd6, const double *p_yd7, const double *p_yd8,
+    const double *p_zd1, const double *p_zd2, const double *p_zd3, const double *p_zd4, const double *p_zd5, const double *p_zd6, const double *p_zd7, const double *p_zd8,
     double *p_fx1, double *p_fx2, double *p_fx3, double *p_fx4, double *p_fx5, double *p_fx6, double *p_fx7, double *p_fx8,
     double *p_fy1, double *p_fy2, double *p_fy3, double *p_fy4, double *p_fy5, double *p_fy6, double *p_fy7, double *p_fy8,
     double *p_fz1, double *p_fz2, double *p_fz3, double *p_fz4, double *p_fz5, double *p_fz6, double *p_fz7, double *p_fz8,
-    double *p_dvdx,
-    double *p_dvdy,
-    double *p_dvdz,
-    double *p_x8n,
-    double *p_y8n,
-    double *p_z8n,
-    double *p_determ,
-    double *p_ss,
-    double *p_elemMass,
-    double *gamma_t
+    const double *p_dvdx,
+    const double *p_dvdy,
+    const double *p_dvdz,
+    const double *p_x8n,
+    const double *p_y8n,
+    const double *p_z8n,
+    const double *p_determ,
+    const double *p_ss,
+    const double *p_elemMass,
+    const double *gamma_t
 ){
 
-    Real_t hgfx[8], hgfy[8], hgfz[8] ;
+    double hgfx[8], hgfy[8], hgfz[8] ;
 
-    Real_t coefficient;
+    double coefficient;
 
-    Real_t hourgam[8][4];
-    Real_t xd1[8], yd1[8], zd1[8] ;
+    double hourgam[8][4];
+    double xd1[8], yd1[8], zd1[8] ;
 
-    Real_t volinv=Real_t(1.0)/p_determ[0];
-    Real_t ss1, mass1, volume13 ;
+    double volinv=double(1.0)/p_determ[0];
+    double ss1, mass1, volume13 ;
 
 
-        for(Index_t i1=0;i1<4;++i1){
-        Real_t hourmodx =
+        for(int i1=0;i1<4;++i1){
+        double hourmodx =
             p_x8n[0] * gamma_t[(i1*8)+0] + p_x8n[0+1] * gamma_t[(i1*8)+1] +
             p_x8n[0+2] * gamma_t[(i1*8)+2] + p_x8n[0+3] * gamma_t[(i1*8)+3] +
             p_x8n[0+4] * gamma_t[(i1*8)+4] + p_x8n[0+5] * gamma_t[(i1*8)+5] +
             p_x8n[0+6] * gamma_t[(i1*8)+6] + p_x8n[0+7] * gamma_t[(i1*8)+7];
 
-        Real_t hourmody =
+        double hourmody =
             p_y8n[0] * gamma_t[(i1*8)+0] + p_y8n[0+1] * gamma_t[(i1*8)+1] +
             p_y8n[0+2] * gamma_t[(i1*8)+2] + p_y8n[0+3] * gamma_t[(i1*8)+3] +
             p_y8n[0+4] * gamma_t[(i1*8)+4] + p_y8n[0+5] * gamma_t[(i1*8)+5] +
             p_y8n[0+6] * gamma_t[(i1*8)+6] + p_y8n[0+7] * gamma_t[(i1*8)+7];
 
-        Real_t hourmodz =
+        double hourmodz =
             p_z8n[0] * gamma_t[(i1*8)+0] + p_z8n[0+1] * gamma_t[(i1*8)+1] +
             p_z8n[0+2] * gamma_t[(i1*8)+2] + p_z8n[0+3] * gamma_t[(i1*8)+3] +
             p_z8n[0+4] * gamma_t[(i1*8)+4] + p_z8n[0+5] * gamma_t[(i1*8)+5] +
@@ -86,7 +86,7 @@ inline void FBHourglassForceForElems(
     ss1=p_ss[0];
 
     mass1=p_elemMass[0];
-    volume13=CBRT(p_determ[0]);
+    volume13=cbrt(p_determ[0]);
 
     xd1[0] = p_xd1[0];
     xd1[1] = p_xd2[0];
@@ -115,38 +115,38 @@ inline void FBHourglassForceForElems(
     zd1[6] = p_zd7[0];
     zd1[7] = p_zd8[0];
 
-    coefficient = - m_hgcoef * Real_t(0.01) * ss1 * mass1 / volume13;
+    coefficient = - m_hgcoef * double(0.01) * ss1 * mass1 / volume13;
 
-    Real_t hxx[4];
-    for(Index_t i = 0; i < 4; i++) {
+    double hxx[4];
+    for(int i = 0; i < 4; i++) {
         hxx[i] = hourgam[0][i] * xd1[0] + hourgam[1][i] * xd1[1] +
                 hourgam[2][i] * xd1[2] + hourgam[3][i] * xd1[3] +
                 hourgam[4][i] * xd1[4] + hourgam[5][i] * xd1[5] +
                 hourgam[6][i] * xd1[6] + hourgam[7][i] * xd1[7];
     }
-    for(Index_t i = 0; i < 8; i++) {
+    for(int i = 0; i < 8; i++) {
         hgfx[i] = coefficient *
                     (hourgam[i][0] * hxx[0] + hourgam[i][1] * hxx[1] +
                     hourgam[i][2] * hxx[2] + hourgam[i][3] * hxx[3]);
     }
-    for(Index_t i = 0; i < 4; i++) {
+    for(int i = 0; i < 4; i++) {
         hxx[i] = hourgam[0][i] * yd1[0] + hourgam[1][i] * yd1[1] +
                 hourgam[2][i] * yd1[2] + hourgam[3][i] * yd1[3] +
                 hourgam[4][i] * yd1[4] + hourgam[5][i] * yd1[5] +
                 hourgam[6][i] * yd1[6] + hourgam[7][i] * yd1[7];
     }
-    for(Index_t i = 0; i < 8; i++) {
+    for(int i = 0; i < 8; i++) {
         hgfy[i] = coefficient *
                     (hourgam[i][0] * hxx[0] + hourgam[i][1] * hxx[1] +
                     hourgam[i][2] * hxx[2] + hourgam[i][3] * hxx[3]);
     }
-    for(Index_t i = 0; i < 4; i++) {
+    for(int i = 0; i < 4; i++) {
         hxx[i] = hourgam[0][i] * zd1[0] + hourgam[1][i] * zd1[1] +
                 hourgam[2][i] * zd1[2] + hourgam[3][i] * zd1[3] +
                 hourgam[4][i] * zd1[4] + hourgam[5][i] * zd1[5] +
                 hourgam[6][i] * zd1[6] + hourgam[7][i] * zd1[7];
     }
-    for(Index_t i = 0; i < 8; i++) {
+    for(int i = 0; i < 8; i++) {
         hgfz[i] = coefficient *
                     (hourgam[i][0] * hxx[0] + hourgam[i][1] * hxx[1] +
                     hourgam[i][2] * hxx[2] + hourgam[i][3] * hxx[3]);

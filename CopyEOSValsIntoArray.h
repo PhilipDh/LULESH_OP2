@@ -1,10 +1,10 @@
 inline void CopyEOSValsIntoArray(
-                                double *e_old, double *e,
-                                double *delvc, double *delv,
-                                double *p_old, double *p,
-                                double *q_old, double *q,
-                                double *qq_old, double *qq,
-                                double *ql_old, double *ql){
+                                double *e_old, const double *e,
+                                double *delvc, const double *delv,
+                                double *p_old, const double *p,
+                                double *q_old, const double *q,
+                                double *qq_old, const double *qq,
+                                double *ql_old, const double *ql){
     e_old[0] = e[0] ;
     delvc[0] = delv[0] ;
     

@@ -35,14 +35,14 @@ void SumElemFaceNormalt(double *normalX0, double *normalY0, double *normalZ0,
 }
 
 inline void IntegrateStressForElemsLoop(
-                                        double *p_x1, double *p_x2, double *p_x3, double *p_x4, double *p_x5, double *p_x6, double *p_x7, double *p_x8,
-                                        double *p_y1, double *p_y2, double *p_y3, double *p_y4, double *p_y5, double *p_y6, double *p_y7, double *p_y8,
-                                        double *p_z1, double *p_z2, double *p_z3, double *p_z4, double *p_z5, double *p_z6, double *p_z7, double *p_z8,
+                                        const double *p_x1, const double *p_x2, const double *p_x3, const double *p_x4, const double *p_x5, const double *p_x6, const double *p_x7, const double *p_x8,
+                                        const double *p_y1, const double *p_y2, const double *p_y3, const double *p_y4, const double *p_y5, const double *p_y6, const double *p_y7, const double *p_y8,
+                                        const double *p_z1, const double *p_z2, const double *p_z3, const double *p_z4, const double *p_z5, const double *p_z6, const double *p_z7, const double *p_z8,
                                         double *p_fx1, double *p_fx2, double *p_fx3, double *p_fx4, double *p_fx5, double *p_fx6, double *p_fx7, double *p_fx8,
                                         double *p_fy1, double *p_fy2, double *p_fy3, double *p_fy4, double *p_fy5, double *p_fy6, double *p_fy7, double *p_fy8,
                                         double *p_fz1, double *p_fz2, double *p_fz3, double *p_fz4, double *p_fz5, double *p_fz6, double *p_fz7, double *p_fz8,
                                         double *volume,
-                                        double *t_sigxx){
+                                        const double *sigxx, const double *sigyy, const double *sigzz){
     double b[3][8] ;// shape function derivatives
     double x_local[8] ;
     double y_local[8] ;
@@ -52,14 +52,14 @@ inline void IntegrateStressForElemsLoop(
     double fy_local[8] ;
     double fz_local[8] ;
 
-    // Index_t nd0i = nodelist[iteration * 8 + 0] ;
-    // Index_t nd1i = elemToNode[1] ;
-    // Index_t nd2i = elemToNode[2] ;
-    // Index_t nd3i = elemToNode[3] ;
-    // Index_t nd4i = elemToNode[4] ;
-    // Index_t nd5i = elemToNode[5] ;
-    // Index_t nd6i = elemToNode[6] ;
-    // Index_t nd7i = elemToNode[7] ;
+    // int nd0i = nodelist[iteration * 8 + 0] ;
+    // int nd1i = elemToNode[1] ;
+    // int nd2i = elemToNode[2] ;
+    // int nd3i = elemToNode[3] ;
+    // int nd4i = elemToNode[4] ;
+    // int nd5i = elemToNode[5] ;
+    // int nd6i = elemToNode[6] ;
+    // int nd7i = elemToNode[7] ;
 
     x_local[0] = p_x1[0];
     x_local[1] = p_x2[0];
@@ -171,62 +171,216 @@ inline void IntegrateStressForElemsLoop(
     volume[0] = double(8.) * ( fjxet * cjxet + fjyet * cjyet + fjzet * cjzet);
     // std::cout << "Volume: " << *volume << "\n";
 
-    for (Index_t i = 0 ; i < 8 ; ++i) {
+    for (int i = 0 ; i < 8 ; ++i) {
       b[0][i] = double(0.0);
       b[1][i] = double(0.0);
       b[2][i] = double(0.0);
     }
+
+    //Start Sum ElemFace Normals
+    double bisectX0, bisectY0, bisectZ0, bisectX1, bisectY1, bisectZ1;
+    double areaX, areaY, areaZ;
+
     /* evaluate face one: nodes 0, 1, 2, 3 */
-    SumElemFaceNormalt(&b[0][0], &b[1][0], &b[2][0],
-                    &b[0][1], &b[1][1], &b[2][1],
-                    &b[0][2], &b[1][2], &b[2][2],
-                    &b[0][3], &b[1][3], &b[2][3],
-                    x_local[0], y_local[0], z_local[0], x_local[1], y_local[1], z_local[1],
-                    x_local[2], y_local[2], z_local[2], x_local[3], y_local[3], z_local[3]);
+    // SumElemFaceNormalt(&b[0][0], &b[1][0], &b[2][0],
+    //                 &b[0][1], &b[1][1], &b[2][1],
+    //                 &b[0][2], &b[1][2], &b[2][2],
+    //                 &b[0][3], &b[1][3], &b[2][3],
+    //                 x_local[0], y_local[0], z_local[0], x_local[1], y_local[1], z_local[1],
+    //                 x_local[2], y_local[2], z_local[2], x_local[3], y_local[3], z_local[3]);
+    bisectX0 = double(0.5) * (x_local[3] + x_local[2] - x_local[1] - x_local[0]);
+    bisectY0 = double(0.5) * (y_local[3] + y_local[2] - y_local[1] - y_local[0]);
+    bisectZ0 = double(0.5) * (z_local[3] + z_local[2] - z_local[1] - z_local[0]);
+    bisectX1 = double(0.5) * (x_local[2] + x_local[1] - x_local[3] - x_local[0]);
+    bisectY1 = double(0.5) * (y_local[2] + y_local[1] - y_local[3] - y_local[0]);
+    bisectZ1 = double(0.5) * (z_local[2] + z_local[1] - z_local[3] - z_local[0]);
+    areaX = double(0.25) * (bisectY0 * bisectZ1 - bisectZ0 * bisectY1);
+    areaY = double(0.25) * (bisectZ0 * bisectX1 - bisectX0 * bisectZ1);
+    areaZ = double(0.25) * (bisectX0 * bisectY1 - bisectY0 * bisectX1);
+
+    b[0][0] += areaX;
+    b[0][1] += areaX;
+    b[0][2] += areaX;
+    b[0][3] += areaX;
+
+    b[1][0] += areaY;
+    b[1][1] += areaY;
+    b[1][2] += areaY;
+    b[1][3] += areaY;
+
+    b[2][0] += areaZ;
+    b[2][1] += areaZ;
+    b[2][2] += areaZ;
+    b[2][3] += areaZ;
     /* evaluate face two: nodes 0, 4, 5, 1 */
-    SumElemFaceNormalt(&b[0][0], &b[1][0], &b[2][0],
-                    &b[0][4], &b[1][4], &b[2][4],
-                    &b[0][5], &b[1][5], &b[2][5],
-                    &b[0][1], &b[1][1], &b[2][1],
-                    x_local[0], y_local[0], z_local[0], x_local[4], y_local[4], z_local[4],
-                    x_local[5], y_local[5], z_local[5], x_local[1], y_local[1], z_local[1]);
+    // SumElemFaceNormalt(&b[0][0], &b[1][0], &b[2][0],
+    //                 &b[0][4], &b[1][4], &b[2][4],
+    //                 &b[0][5], &b[1][5], &b[2][5],
+    //                 &b[0][1], &b[1][1], &b[2][1],
+    //                 x_local[0], y_local[0], z_local[0], x_local[4], y_local[4], z_local[4],
+    //                 x_local[5], y_local[5], z_local[5], x_local[1], y_local[1], z_local[1]);
+    bisectX0 = double(0.5) * (x_local[1] + x_local[5] - x_local[4] - x_local[0]);
+    bisectY0 = double(0.5) * (y_local[1] + y_local[5] - y_local[4] - y_local[0]);
+    bisectZ0 = double(0.5) * (z_local[1] + z_local[5] - z_local[4] - z_local[0]);
+    bisectX1 = double(0.5) * (x_local[5] + x_local[4] - x_local[1] - x_local[0]);
+    bisectY1 = double(0.5) * (y_local[5] + y_local[4] - y_local[1] - y_local[0]);
+    bisectZ1 = double(0.5) * (z_local[5] + z_local[4] - z_local[1] - z_local[0]);
+    areaX = double(0.25) * (bisectY0 * bisectZ1 - bisectZ0 * bisectY1);
+    areaY = double(0.25) * (bisectZ0 * bisectX1 - bisectX0 * bisectZ1);
+    areaZ = double(0.25) * (bisectX0 * bisectY1 - bisectY0 * bisectX1);
+
+    b[0][0] += areaX;
+    b[0][4] += areaX;
+    b[0][5] += areaX;
+    b[0][1] += areaX;
+
+    b[1][0] += areaY;
+    b[1][4] += areaY;
+    b[1][5] += areaY;
+    b[1][1] += areaY;
+
+    b[2][0] += areaZ;
+    b[2][4] += areaZ;
+    b[2][5] += areaZ;
+    b[2][1] += areaZ;
     /* evaluate face three: nodes 1, 5, 6, 2 */
-    SumElemFaceNormalt(&b[0][1], &b[1][1], &b[2][1],
-                    &b[0][5], &b[1][5], &b[2][5],
-                    &b[0][6], &b[1][6], &b[2][6],
-                    &b[0][2], &b[1][2], &b[2][2],
-                    x_local[1], y_local[1], z_local[1], x_local[5], y_local[5], z_local[5],
-                    x_local[6], y_local[6], z_local[6], x_local[2], y_local[2], z_local[2]);
+    // SumElemFaceNormalt(&b[0][1], &b[1][1], &b[2][1],
+    //                 &b[0][5], &b[1][5], &b[2][5],
+    //                 &b[0][6], &b[1][6], &b[2][6],
+    //                 &b[0][2], &b[1][2], &b[2][2],
+    //                 x_local[1], y_local[1], z_local[1], x_local[5], y_local[5], z_local[5],
+    //                 x_local[6], y_local[6], z_local[6], x_local[2], y_local[2], z_local[2]);
+    bisectX0 = double(0.5) * (x_local[2] + x_local[6] - x_local[5] - x_local[1]);
+    bisectY0 = double(0.5) * (y_local[2] + y_local[6] - y_local[5] - y_local[1]);
+    bisectZ0 = double(0.5) * (z_local[2] + z_local[6] - z_local[5] - z_local[1]);
+    bisectX1 = double(0.5) * (x_local[6] + x_local[5] - x_local[2] - x_local[1]);
+    bisectY1 = double(0.5) * (y_local[6] + y_local[5] - y_local[2] - y_local[1]);
+    bisectZ1 = double(0.5) * (z_local[6] + z_local[5] - z_local[2] - z_local[1]);
+    areaX = double(0.25) * (bisectY0 * bisectZ1 - bisectZ0 * bisectY1);
+    areaY = double(0.25) * (bisectZ0 * bisectX1 - bisectX0 * bisectZ1);
+    areaZ = double(0.25) * (bisectX0 * bisectY1 - bisectY0 * bisectX1);
+
+    b[0][1] += areaX;
+    b[0][5] += areaX;
+    b[0][6] += areaX;
+    b[0][2] += areaX;
+
+    b[1][1] += areaY;
+    b[1][5] += areaY;
+    b[1][6] += areaY;
+    b[1][2] += areaY;
+
+    b[2][1] += areaZ;
+    b[2][5] += areaZ;
+    b[2][6] += areaZ;
+    b[2][2] += areaZ;
     /* evaluate face four: nodes 2, 6, 7, 3 */
-    SumElemFaceNormalt(&b[0][2], &b[1][2], &b[2][2],
-                    &b[0][6], &b[1][6], &b[2][6],
-                    &b[0][7], &b[1][7], &b[2][7],
-                    &b[0][3], &b[1][3], &b[2][3],
-                    x_local[2], y_local[2], z_local[2], x_local[6], y_local[6], z_local[6],
-                    x_local[7], y_local[7], z_local[7], x_local[3], y_local[3], z_local[3]);
+    // SumElemFaceNormalt(&b[0][2], &b[1][2], &b[2][2],
+    //                 &b[0][6], &b[1][6], &b[2][6],
+    //                 &b[0][7], &b[1][7], &b[2][7],
+    //                 &b[0][3], &b[1][3], &b[2][3],
+    //                 x_local[2], y_local[2], z_local[2], x_local[6], y_local[6], z_local[6],
+    //                 x_local[7], y_local[7], z_local[7], x_local[3], y_local[3], z_local[3]);
+    bisectX0 = double(0.5) * (x_local[3] + x_local[7] - x_local[6] - x_local[2]);
+    bisectY0 = double(0.5) * (y_local[3] + y_local[7] - y_local[6] - y_local[2]);
+    bisectZ0 = double(0.5) * (z_local[3] + z_local[7] - z_local[6] - z_local[2]);
+    bisectX1 = double(0.5) * (x_local[7] + x_local[6] - x_local[3] - x_local[2]);
+    bisectY1 = double(0.5) * (y_local[7] + y_local[6] - y_local[3] - y_local[2]);
+    bisectZ1 = double(0.5) * (z_local[7] + z_local[6] - z_local[3] - z_local[2]);
+    areaX = double(0.25) * (bisectY0 * bisectZ1 - bisectZ0 * bisectY1);
+    areaY = double(0.25) * (bisectZ0 * bisectX1 - bisectX0 * bisectZ1);
+    areaZ = double(0.25) * (bisectX0 * bisectY1 - bisectY0 * bisectX1);
+
+    b[0][2] += areaX;
+    b[0][6] += areaX;
+    b[0][7] += areaX;
+    b[0][3] += areaX;
+
+    b[1][2] += areaY;
+    b[1][6] += areaY;
+    b[1][7] += areaY;
+    b[1][3] += areaY;
+
+    b[2][2] += areaZ;
+    b[2][6] += areaZ;
+    b[2][7] += areaZ;
+    b[2][3] += areaZ;
     /* evaluate face five: nodes 3, 7, 4, 0 */
-    SumElemFaceNormalt(&b[0][3], &b[1][3], &b[2][3],
-                    &b[0][7], &b[1][7], &b[2][7],
-                    &b[0][4], &b[1][4], &b[2][4],
-                    &b[0][0], &b[1][0], &b[2][0],
-                    x_local[3], y_local[3], z_local[3], x_local[7], y_local[7], z_local[7],
-                    x_local[4], y_local[4], z_local[4], x_local[0], y_local[0], z_local[0]);
+    // SumElemFaceNormalt(&b[0][3], &b[1][3], &b[2][3],
+    //                 &b[0][7], &b[1][7], &b[2][7],
+    //                 &b[0][4], &b[1][4], &b[2][4],
+    //                 &b[0][0], &b[1][0], &b[2][0],
+    //                 x_local[3], y_local[3], z_local[3], x_local[7], y_local[7], z_local[7],
+    //                 x_local[4], y_local[4], z_local[4], x_local[0], y_local[0], z_local[0]);
+    bisectX0 = double(0.5) * (x_local[0] + x_local[4] - x_local[7] - x_local[3]);
+    bisectY0 = double(0.5) * (y_local[0] + y_local[4] - y_local[7] - y_local[3]);
+    bisectZ0 = double(0.5) * (z_local[0] + z_local[4] - z_local[7] - z_local[3]);
+    bisectX1 = double(0.5) * (x_local[4] + x_local[7] - x_local[0] - x_local[3]);
+    bisectY1 = double(0.5) * (y_local[4] + y_local[7] - y_local[0] - y_local[3]);
+    bisectZ1 = double(0.5) * (z_local[4] + z_local[7] - z_local[0] - z_local[3]);
+    areaX = double(0.25) * (bisectY0 * bisectZ1 - bisectZ0 * bisectY1);
+    areaY = double(0.25) * (bisectZ0 * bisectX1 - bisectX0 * bisectZ1);
+    areaZ = double(0.25) * (bisectX0 * bisectY1 - bisectY0 * bisectX1);
+
+    b[0][3] += areaX;
+    b[0][7] += areaX;
+    b[0][4] += areaX;
+    b[0][0] += areaX;
+
+    b[1][3] += areaY;
+    b[1][7] += areaY;
+    b[1][4] += areaY;
+    b[1][0] += areaY;
+
+    b[2][3] += areaZ;
+    b[2][7] += areaZ;
+    b[2][4] += areaZ;
+    b[2][0] += areaZ;
     /* evaluate face six: nodes 4, 7, 6, 5 */
-    SumElemFaceNormalt(&b[0][4], &b[1][4], &b[2][4],
-                    &b[0][7], &b[1][7], &b[2][7],
-                    &b[0][6], &b[1][6], &b[2][6],
-                    &b[0][5], &b[1][5], &b[2][5],
-                    x_local[4], y_local[4], z_local[4], x_local[7], y_local[7], z_local[7],
-                    x_local[6], y_local[6], z_local[6], x_local[5], y_local[5], z_local[5]);
+    // SumElemFaceNormalt(&b[0][4], &b[1][4], &b[2][4],
+    //                 &b[0][7], &b[1][7], &b[2][7],
+    //                 &b[0][6], &b[1][6], &b[2][6],
+    //                 &b[0][5], &b[1][5], &b[2][5],
+    //                 x_local[4], y_local[4], z_local[4], x_local[7], y_local[7], z_local[7],
+    //                 x_local[6], y_local[6], z_local[6], x_local[5], y_local[5], z_local[5]);
+    bisectX0 = double(0.5) * (x_local[5] + x_local[6] - x_local[7] - x_local[4]);
+    bisectY0 = double(0.5) * (y_local[5] + y_local[6] - y_local[7] - y_local[4]);
+    bisectZ0 = double(0.5) * (z_local[5] + z_local[6] - z_local[7] - z_local[4]);
+    bisectX1 = double(0.5) * (x_local[6] + x_local[7] - x_local[5] - x_local[4]);
+    bisectY1 = double(0.5) * (y_local[6] + y_local[7] - y_local[5] - y_local[4]);
+    bisectZ1 = double(0.5) * (z_local[6] + z_local[7] - z_local[5] - z_local[4]);
+    areaX = double(0.25) * (bisectY0 * bisectZ1 - bisectZ0 * bisectY1);
+    areaY = double(0.25) * (bisectZ0 * bisectX1 - bisectX0 * bisectZ1);
+    areaZ = double(0.25) * (bisectX0 * bisectY1 - bisectY0 * bisectX1);
 
-    for(Index_t i = 0; i < 8; i++) {
-        fx_local[i] = -( t_sigxx[0] * b[0][i] );
-        fy_local[i] = -( t_sigxx[1] * b[1][i]  );
-        fz_local[i] = -( t_sigxx[2] * b[2][i] );
+    b[0][4] += areaX;
+    b[0][7] += areaX;
+    b[0][6] += areaX;
+    b[0][5] += areaX;
+
+    b[1][4] += areaY;
+    b[1][7] += areaY;
+    b[1][6] += areaY;
+    b[1][5] += areaY;
+
+    b[2][4] += areaZ;
+    b[2][7] += areaZ;
+    b[2][6] += areaZ;
+    b[2][5] += areaZ;
+
+    // for(int i = 0; i < 8; i++) {
+    //     fx_local[i] = -( t_sigxx[0] * b[0][i] );
+    //     fy_local[i] = -( t_sigxx[1] * b[1][i]  );
+    //     fz_local[i] = -( t_sigxx[2] * b[2][i] );
+    // }
+
+    for(int i = 0; i < 8; i++) {
+        fx_local[i] = -( sigxx[0] * b[0][i] );
+        fy_local[i] = -( sigyy[0] * b[1][i]  );
+        fz_local[i] = -( sigzz[0] * b[2][i] );
     }
-
-    // for( Index_t lnode=0 ; lnode<8 ; ++lnode ) {
-    //     Index_t gnode = elemToNode[lnode];
+    // for( int lnode=0 ; lnode<8 ; ++lnode ) {
+    //     int gnode = elemToNode[lnode];
     //     //  domain.fx(gnode) += fx_local[lnode];
     //     //  domain.fy(gnode) += fy_local[lnode];
     //     //  domain.fz(gnode) += fz_local[lnode];
