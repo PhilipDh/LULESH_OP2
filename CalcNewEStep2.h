@@ -1,5 +1,5 @@
 inline void CalcNewEStep2(const double *compHalfStep, const double *delvc, double *q_new, const double *pbvc, double *e_new, const double *bvc,
-                            const double *pHalfStep, const double *ql_old, const double *qq_old, const double *p_old, const double *q_old, const double *rho0
+                            const double *pHalfStep, const double *ql_old, const double *qq_old, const double *p_old, const double *q_old
 ){
     double vhalf = double(1.) / (double(1.) + compHalfStep[0]) ;
 
@@ -8,10 +8,10 @@ inline void CalcNewEStep2(const double *compHalfStep, const double *delvc, doubl
     }
     else {
         double ssc = ( pbvc[0] * e_new[0]
-                + vhalf * vhalf * bvc[0] * pHalfStep[0] ) / (*rho0) ;
+                + vhalf * vhalf * bvc[0] * pHalfStep[0] ) / m_refdens ;
 
-        if ( ssc <= double(.1111111e-36) ) {
-        ssc = double(.3333333e-18) ;
+        if ( ssc <= m_ssc_thresh ) {
+        ssc = m_ssc_low ;
         } else {
         ssc = sqrt(ssc) ;
         }

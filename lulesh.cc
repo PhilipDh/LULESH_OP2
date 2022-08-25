@@ -159,13 +159,10 @@ Additional BSD Notice
 #include <op_seq.h>
 // #include <hdf5.h>
 
-#if _OPENMP
-# include <omp.h>
-#endif
-
-
 #include "lulesh.h"
+// #include "const.h"
 int myRank;
+struct cmdLineOpts opts;
 double  m_hgcoef = double(3.0);            // hourglass control 
 // Cutoffs (treat as constants)
 double  m_e_cut = double(1.0e-7);             // energy tolerance 
@@ -175,7 +172,6 @@ double  m_v_cut = double(1.0e-10) ;             // relative volume tolerance
 double  m_u_cut = double(1.0e-7) ;             // velocity tolerance 
 
 // Other constants (usually setable, but hardcoded in this proxy app)
-
 
 double  m_ss4o3 = (double(4.0)/double(3.0));
 double  m_qstop = double(1.0e+12);             // excessive q indicator 
@@ -190,6 +186,16 @@ double  m_pmin = double(0.);              // pressure floor
 double  m_emin = double(-1.0e+15);              // energy floor 
 double  m_dvovmax = double(0.1);           // maximum allowable volume change 
 double  m_refdens = double(1.0);           // reference density 
+
+//Consts not defined originally, but for CUDA version
+double  m_qqc2 = double(64.0) * m_qqc * m_qqc ;
+double  m_ptiny = double(1.e-36) ;
+double  m_gamma_t[4*8];
+double  m_twelfth = double(1.0)/double(12.0);
+double  m_sixth = double(1.0) / double(6.0);
+double  m_c1s = double(2.0)/double(3.0);
+double  m_ssc_thresh = double(.1111111e-36);
+double  m_ssc_low = double(.3333333e-18);
 
 // Identifiers for free ndoes or boundary nodes
 #define FREE_NODE 0x00
@@ -228,11 +234,11 @@ double  m_refdens = double(1.0);           // reference density
 #define ZETA_P_FREE 0x10000
 #define ZETA_P_COMM 0x20000
 
-inline double SQRT(double  arg) { return sqrt(arg) ; }
-inline double CBRT(double  arg) { return cbrt(arg) ; }
-inline double FABS(double  arg) { return fabs(arg) ; }
-enum { VolumeError = -1, QStopError = -2 } ;
-#define MAX(a, b) ( ((a) > (b)) ? (a) : (b))
+// inline double SQRT(double  arg) { return sqrt(arg) ; }
+// inline double CBRT(double  arg) { return cbrt(arg) ; }
+// inline double FABS(double  arg) { return fabs(arg) ; }
+// enum { VolumeError = -1, QStopError = -2 } ;
+// #define MAX(a, b) ( ((a) > (b)) ? (a) : (b))
 
 #include "FBHourglassForceForElems.h"
 #include "CalcVolumeDerivatives.h"
@@ -278,9 +284,7 @@ enum { VolumeError = -1, QStopError = -2 } ;
 // Should maybe be moved to a header file to avoid clutter or to the main function to not be global
 // Element-centered
 
-#define DEBUGGING 0
-
-   // Region information
+// Region information
 int    m_numReg ;
 int    m_cost; //imbalance cost
 int *m_regElemSize ;   // Size of region sets
@@ -298,17 +302,11 @@ int* lzetap;
 
 int* elemBC;            /* symmetry/free-surface flags for each elem face */
 
-double* dxx ;  /* principal strains -- temporary */
-double* dyy ;
-double* dzz ;
+double* dxx,*dyy,*dzz ;  /* principal strains -- temporary */
 
-double* delv_xi ;    /* velocity gradient -- temporary */
-double* delv_eta ;
-double* delv_zeta ;
+double* delv_xi, *delv_eta, *delv_zeta ;    /* velocity gradient -- temporary */
 
-double* delx_xi ;    /* coordinate gradient -- temporary */
-double* delx_eta ;
-double* delx_zeta ;
+double* delx_xi, *delx_eta, *delx_zeta ;    /* coordinate gradient -- temporary */
 
 double* e;
 double* p;
@@ -330,35 +328,20 @@ double* ss;
 double* elemMass;
 
 /* Node-centered */
-double* x;                  /* coordinates */
-double* y;
-double* z;
+double* x,*y,*z;                  /* coordinates */
 
-double* xd;                 /* velocities */
-double* yd;
-double* zd;
+double* xd,*yd,*zd;                 /* velocities */
 
-double* xdd;              /* accelerations */
-double* ydd;
-double* zdd;
+double* xdd,*ydd,*zdd;              /* accelerations */
 
-double* m_fx;                 /* forces */
-double* m_fy;
-double* m_fz;
+double* m_fx,*m_fy,*m_fz;                 /* forces */
 
 double* nodalMass;          /* mass */
 
-int* symmX;              /* symmetry plane nodesets */
-int* symmY;
-int* symmZ;
+int* symmX,*symmY,*symmZ;              /* symmetry plane nodesets */
 
-int* t_symmX;
-int* t_symmY;
-int* t_symmZ;
-
-op_dat p_t_symmX;
-op_dat p_t_symmY;
-op_dat p_t_symmZ;
+int* t_symmX,*t_symmY,*t_symmZ;
+op_dat p_t_symmX,p_t_symmY,p_t_symmZ;
 
 /* Other Constants */
 
@@ -381,10 +364,6 @@ int m_numElem ;
 int m_numNode ;
 
 
-// OMP hack 
-int* m_nodeElemStart ;
-int* m_nodeElemCornerList ;
-
 // Used in setup
 int rowMin, rowMax;
 int colMin, colMax;
@@ -397,9 +376,7 @@ op_set symmetry;
 op_set temp_vols;
 
 op_map p_nodelist;
-op_map p_symmX;
-op_map p_symmY;
-op_map p_symmZ;
+op_map p_symmX, p_symmY, p_symmZ;
 op_map p_lxim;
 op_map p_lxip;
 op_map p_letam;
@@ -407,21 +384,13 @@ op_map p_letap;
 op_map p_lzetam;
 op_map p_lzetap;
 
-op_dat p_fx;
-op_dat p_fy;
-op_dat p_fz;
+op_dat p_fx, p_fy, p_fz;
 
-op_dat p_xd;
-op_dat p_yd;
-op_dat p_zd;
+op_dat p_xd, p_yd, p_zd;
 
-op_dat p_xdd;
-op_dat p_ydd;
-op_dat p_zdd;
+op_dat p_xdd, p_ydd, p_zdd;
 
-op_dat p_x;
-op_dat p_y;
-op_dat p_z;
+op_dat p_x, p_y, p_z;
 
 op_dat p_qq;
 op_dat p_ql;
@@ -451,32 +420,16 @@ op_dat p_delx_eta ;
 op_dat p_delx_zeta ;
 
 //Temporary OP2 Vars
-double *sigxx; 
-double *sigyy; 
-double *sigzz; 
+double *sigxx, *sigyy, *sigzz;
+op_dat p_sigxx, p_sigyy, p_sigzz;
 double *determ;
-op_dat p_sigxx;
-op_dat p_sigyy;
-op_dat p_sigzz;
-
 op_dat p_determ;
 
-double* dvdx;
-double* dvdy;
-double* dvdz;
-double* x8n;
-double* y8n;
-double* z8n;
-op_dat p_dvdx;
-op_dat p_dvdy;
-op_dat p_dvdz;
-op_dat p_x8n;
-op_dat p_y8n;
-op_dat p_z8n;
-
-op_dat p_dxx;
-op_dat p_dyy;
-op_dat p_dzz;
+double* dvdx,*dvdy, *dvdz;
+double* x8n, *y8n, *z8n;
+op_dat p_dvdx, p_dvdy, p_dvdz;
+op_dat p_x8n, p_y8n, p_z8n;
+op_dat p_dxx, p_dyy, p_dzz;
 
 double* vnewc;
 op_dat p_vnewc;
@@ -515,43 +468,6 @@ op_dat p_e_new;
 op_dat p_q_new;
 op_dat p_bvc;
 op_dat p_pbvc;
-
-
-static inline 
-void AllocStrains(int numElem){
-   dxx = (double*) malloc(numElem * sizeof(double));
-   dyy = (double*) malloc(numElem * sizeof(double));
-   dzz = (double*) malloc(numElem * sizeof(double));
-}
-
-static inline
-void AllocGradients(int numElem, int allElem){
-   delx_xi = (double*) malloc(numElem * sizeof(double));
-   delx_eta = (double*) malloc(numElem * sizeof(double));
-   delx_zeta = (double*) malloc(numElem * sizeof(double));
-
-   delv_xi = (double*) malloc(allElem * sizeof(double));
-   delv_eta = (double*) malloc(allElem * sizeof(double));
-   delv_zeta = (double*) malloc(allElem * sizeof(double));
-}
-
-static inline
-void DeallocStrains(){
-   Release(&dzz);
-   Release(&dyy);
-   Release(&dxx);
-}
-
-static inline
-void DeallocGradients(){
-   Release(&delx_zeta);
-   Release(&delx_eta) ;
-   Release(&delx_xi)  ;
-
-   Release(&delv_zeta);
-   Release(&delv_eta) ;
-   Release(&delv_xi)  ;
-}
 
 static inline
 void allocateElems(){
@@ -1614,6 +1530,7 @@ void TimeIncrement()
       double olddt = m_deltatime ;
 
       /* This will require a reduction in parallel */
+      /* Reduction is done in CalcHydroConstraint and CalcCourantConstraint for OP2*/
       double gnewdt = double(1.0e+20) ;
       double newdt ;
       if (m_dtcourant < gnewdt) {
@@ -1708,7 +1625,6 @@ void CollectDomainNodesToElemNodes(Domain &domain,
 static inline
 void InitStressTermsForElems()
 {
-   //
    // pull in the stresses appropriate to the hydro integration
    // std::cout<<"init stress at " << myRank << "\n";
    op_par_loop(initStressTerms, "initStressTerms", elems,
@@ -1723,241 +1639,21 @@ void InitStressTermsForElems()
 /******************************************/
 
 static inline
-void CalcElemShapeFunctionDerivatives( double const x[],
-                                       double const y[],
-                                       double const z[],
-                                       double b[][8],
-                                       double* const volume )
-{
-  const double x0 = x[0] ;   const double x1 = x[1] ;
-  const double x2 = x[2] ;   const double x3 = x[3] ;
-  const double x4 = x[4] ;   const double x5 = x[5] ;
-  const double x6 = x[6] ;   const double x7 = x[7] ;
-
-  const double y0 = y[0] ;   const double y1 = y[1] ;
-  const double y2 = y[2] ;   const double y3 = y[3] ;
-  const double y4 = y[4] ;   const double y5 = y[5] ;
-  const double y6 = y[6] ;   const double y7 = y[7] ;
-
-  const double z0 = z[0] ;   const double z1 = z[1] ;
-  const double z2 = z[2] ;   const double z3 = z[3] ;
-  const double z4 = z[4] ;   const double z5 = z[5] ;
-  const double z6 = z[6] ;   const double z7 = z[7] ;
-
-  double fjxxi, fjxet, fjxze;
-  double fjyxi, fjyet, fjyze;
-  double fjzxi, fjzet, fjzze;
-  double cjxxi, cjxet, cjxze;
-  double cjyxi, cjyet, cjyze;
-  double cjzxi, cjzet, cjzze;
-
-  fjxxi = double(.125) * ( (x6-x0) + (x5-x3) - (x7-x1) - (x4-x2) );
-  fjxet = double(.125) * ( (x6-x0) - (x5-x3) + (x7-x1) - (x4-x2) );
-  fjxze = double(.125) * ( (x6-x0) + (x5-x3) + (x7-x1) + (x4-x2) );
-
-  fjyxi = double(.125) * ( (y6-y0) + (y5-y3) - (y7-y1) - (y4-y2) );
-  fjyet = double(.125) * ( (y6-y0) - (y5-y3) + (y7-y1) - (y4-y2) );
-  fjyze = double(.125) * ( (y6-y0) + (y5-y3) + (y7-y1) + (y4-y2) );
-
-  fjzxi = double(.125) * ( (z6-z0) + (z5-z3) - (z7-z1) - (z4-z2) );
-  fjzet = double(.125) * ( (z6-z0) - (z5-z3) + (z7-z1) - (z4-z2) );
-  fjzze = double(.125) * ( (z6-z0) + (z5-z3) + (z7-z1) + (z4-z2) );
-
-  /* compute cofactors */
-  cjxxi =    (fjyet * fjzze) - (fjzet * fjyze);
-  cjxet =  - (fjyxi * fjzze) + (fjzxi * fjyze);
-  cjxze =    (fjyxi * fjzet) - (fjzxi * fjyet);
-
-  cjyxi =  - (fjxet * fjzze) + (fjzet * fjxze);
-  cjyet =    (fjxxi * fjzze) - (fjzxi * fjxze);
-  cjyze =  - (fjxxi * fjzet) + (fjzxi * fjxet);
-
-  cjzxi =    (fjxet * fjyze) - (fjyet * fjxze);
-  cjzet =  - (fjxxi * fjyze) + (fjyxi * fjxze);
-  cjzze =    (fjxxi * fjyet) - (fjyxi * fjxet);
-
-  /* calculate partials :
-     this need only be done for l = 0,1,2,3   since , by symmetry ,
-     (6,7,4,5) = - (0,1,2,3) .
-  */
-  b[0][0] =   -  cjxxi  -  cjxet  -  cjxze;
-  b[0][1] =      cjxxi  -  cjxet  -  cjxze;
-  b[0][2] =      cjxxi  +  cjxet  -  cjxze;
-  b[0][3] =   -  cjxxi  +  cjxet  -  cjxze;
-  b[0][4] = -b[0][2];
-  b[0][5] = -b[0][3];
-  b[0][6] = -b[0][0];
-  b[0][7] = -b[0][1];
-
-  b[1][0] =   -  cjyxi  -  cjyet  -  cjyze;
-  b[1][1] =      cjyxi  -  cjyet  -  cjyze;
-  b[1][2] =      cjyxi  +  cjyet  -  cjyze;
-  b[1][3] =   -  cjyxi  +  cjyet  -  cjyze;
-  b[1][4] = -b[1][2];
-  b[1][5] = -b[1][3];
-  b[1][6] = -b[1][0];
-  b[1][7] = -b[1][1];
-
-  b[2][0] =   -  cjzxi  -  cjzet  -  cjzze;
-  b[2][1] =      cjzxi  -  cjzet  -  cjzze;
-  b[2][2] =      cjzxi  +  cjzet  -  cjzze;
-  b[2][3] =   -  cjzxi  +  cjzet  -  cjzze;
-  b[2][4] = -b[2][2];
-  b[2][5] = -b[2][3];
-  b[2][6] = -b[2][0];
-  b[2][7] = -b[2][1];
-
-  /* calculate jacobian determinant (volume) */
-  *volume = double(8.) * ( fjxet * cjxet + fjyet * cjyet + fjzet * cjzet);
-//   std::cout << "Volume: " << *volume << "\n";
-}
-
-/******************************************/
-
-static inline
-void SumElemFaceNormal(double *normalX0, double *normalY0, double *normalZ0,
-                       double *normalX1, double *normalY1, double *normalZ1,
-                       double *normalX2, double *normalY2, double *normalZ2,
-                       double *normalX3, double *normalY3, double *normalZ3,
-                       const double x0, const double y0, const double z0,
-                       const double x1, const double y1, const double z1,
-                       const double x2, const double y2, const double z2,
-                       const double x3, const double y3, const double z3)
-{
-   double bisectX0 = double(0.5) * (x3 + x2 - x1 - x0);
-   double bisectY0 = double(0.5) * (y3 + y2 - y1 - y0);
-   double bisectZ0 = double(0.5) * (z3 + z2 - z1 - z0);
-   double bisectX1 = double(0.5) * (x2 + x1 - x3 - x0);
-   double bisectY1 = double(0.5) * (y2 + y1 - y3 - y0);
-   double bisectZ1 = double(0.5) * (z2 + z1 - z3 - z0);
-   double areaX = double(0.25) * (bisectY0 * bisectZ1 - bisectZ0 * bisectY1);
-   double areaY = double(0.25) * (bisectZ0 * bisectX1 - bisectX0 * bisectZ1);
-   double areaZ = double(0.25) * (bisectX0 * bisectY1 - bisectY0 * bisectX1);
-
-   *normalX0 += areaX;
-   *normalX1 += areaX;
-   *normalX2 += areaX;
-   *normalX3 += areaX;
-
-   *normalY0 += areaY;
-   *normalY1 += areaY;
-   *normalY2 += areaY;
-   *normalY3 += areaY;
-
-   *normalZ0 += areaZ;
-   *normalZ1 += areaZ;
-   *normalZ2 += areaZ;
-   *normalZ3 += areaZ;
-}
-
-/******************************************/
-
-static inline
-void CalcElemNodeNormals(double pfx[8],
-                         double pfy[8],
-                         double pfz[8],
-                         const double x[8],
-                         const double y[8],
-                         const double z[8])
-{
-   for (int i = 0 ; i < 8 ; ++i) {
-      pfx[i] = double(0.0);
-      pfy[i] = double(0.0);
-      pfz[i] = double(0.0);
-   }
-   /* evaluate face one: nodes 0, 1, 2, 3 */
-   SumElemFaceNormal(&pfx[0], &pfy[0], &pfz[0],
-                  &pfx[1], &pfy[1], &pfz[1],
-                  &pfx[2], &pfy[2], &pfz[2],
-                  &pfx[3], &pfy[3], &pfz[3],
-                  x[0], y[0], z[0], x[1], y[1], z[1],
-                  x[2], y[2], z[2], x[3], y[3], z[3]);
-   /* evaluate face two: nodes 0, 4, 5, 1 */
-   SumElemFaceNormal(&pfx[0], &pfy[0], &pfz[0],
-                  &pfx[4], &pfy[4], &pfz[4],
-                  &pfx[5], &pfy[5], &pfz[5],
-                  &pfx[1], &pfy[1], &pfz[1],
-                  x[0], y[0], z[0], x[4], y[4], z[4],
-                  x[5], y[5], z[5], x[1], y[1], z[1]);
-   /* evaluate face three: nodes 1, 5, 6, 2 */
-   SumElemFaceNormal(&pfx[1], &pfy[1], &pfz[1],
-                  &pfx[5], &pfy[5], &pfz[5],
-                  &pfx[6], &pfy[6], &pfz[6],
-                  &pfx[2], &pfy[2], &pfz[2],
-                  x[1], y[1], z[1], x[5], y[5], z[5],
-                  x[6], y[6], z[6], x[2], y[2], z[2]);
-   /* evaluate face four: nodes 2, 6, 7, 3 */
-   SumElemFaceNormal(&pfx[2], &pfy[2], &pfz[2],
-                  &pfx[6], &pfy[6], &pfz[6],
-                  &pfx[7], &pfy[7], &pfz[7],
-                  &pfx[3], &pfy[3], &pfz[3],
-                  x[2], y[2], z[2], x[6], y[6], z[6],
-                  x[7], y[7], z[7], x[3], y[3], z[3]);
-   /* evaluate face five: nodes 3, 7, 4, 0 */
-   SumElemFaceNormal(&pfx[3], &pfy[3], &pfz[3],
-                  &pfx[7], &pfy[7], &pfz[7],
-                  &pfx[4], &pfy[4], &pfz[4],
-                  &pfx[0], &pfy[0], &pfz[0],
-                  x[3], y[3], z[3], x[7], y[7], z[7],
-                  x[4], y[4], z[4], x[0], y[0], z[0]);
-   /* evaluate face six: nodes 4, 7, 6, 5 */
-   SumElemFaceNormal(&pfx[4], &pfy[4], &pfz[4],
-                  &pfx[7], &pfy[7], &pfz[7],
-                  &pfx[6], &pfy[6], &pfz[6],
-                  &pfx[5], &pfy[5], &pfz[5],
-                  x[4], y[4], z[4], x[7], y[7], z[7],
-                  x[6], y[6], z[6], x[5], y[5], z[5]);
-}
-
-/******************************************/
-
-static inline
-void SumElemStressesToNodeForces( const double B[][8],
-                                  const double stress_xx,
-                                  const double stress_yy,
-                                  const double stress_zz,
-                                  double fx[], double fy[], double fz[] )
-{
-   for(int i = 0; i < 8; i++) {
-      fx[i] = -( stress_xx * B[0][i] );
-      fy[i] = -( stress_yy * B[1][i]  );
-      fz[i] = -( stress_zz * B[2][i] );
-   }
-}
-
-/******************************************/
-
-static inline
 void IntegrateStressForElems()
 {
-#if _OPENMP
-   int numthreads = omp_get_max_threads();
-#else
-   int numthreads = 1;
-#endif
-
-   int numElem8 = m_numElem * 8 ;
-   double *fx_elem;
-   double *fy_elem;
-   double *fz_elem;
-   double fx_local[8] ;
-   double fy_local[8] ;
-   double fz_local[8] ;
-
-
-  if (numthreads > 1) {
-     fx_elem = Allocate<double>(numElem8) ;
-     fy_elem = Allocate<double>(numElem8) ;
-     fz_elem = Allocate<double>(numElem8) ;
-  }
+//   if (numthreads > 1) {
+//      fx_elem = Allocate<double>(numElem8) ;
+//      fy_elem = Allocate<double>(numElem8) ;
+//      fz_elem = Allocate<double>(numElem8) ;
+//   }
   // loop over all elements
    op_par_loop(IntegrateStressForElemsLoop, "IntegrateStressForElemsLoop", elems,
                op_arg_dat(p_x, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 7, p_nodelist, 1, "double", OP_READ),
                op_arg_dat(p_y, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 7, p_nodelist, 1, "double", OP_READ),
                op_arg_dat(p_z, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_z, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_z, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_z, 7, p_nodelist, 1, "double", OP_READ),
-               op_arg_dat(p_fx, 0, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fx, 1, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fx, 2, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 3, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 4, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 5, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 6, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 7, p_nodelist, 1, "double", OP_WRITE),
-               op_arg_dat(p_fy, 0, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fy, 1, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fy, 2, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 3, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 4, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 5, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 6, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 7, p_nodelist, 1, "double", OP_WRITE),
-               op_arg_dat(p_fz, 0, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fz, 1, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fz, 2, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 3, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 4, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 5, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 6, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 7, p_nodelist, 1, "double", OP_WRITE),
+               op_arg_dat(p_fx, 0, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fx, 1, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fx, 2, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fx, 3, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fx, 4, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fx, 5, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fx, 6, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fx, 7, p_nodelist, 1, "double", OP_RW),
+               op_arg_dat(p_fy, 0, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fy, 1, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fy, 2, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fy, 3, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fy, 4, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fy, 5, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fy, 6, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fy, 7, p_nodelist, 1, "double", OP_RW),
+               op_arg_dat(p_fz, 0, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fz, 1, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fz, 2, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fz, 3, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fz, 4, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fz, 5, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fz, 6, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fz, 7, p_nodelist, 1, "double", OP_RW),
                op_arg_dat(p_determ, -1, OP_ID, 1, "double", OP_WRITE),
                op_arg_dat(p_sigxx, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_sigyy, -1, OP_ID, 1, "double", OP_READ),
@@ -1968,133 +1664,8 @@ void IntegrateStressForElems()
 /******************************************/
 
 static inline
-void VoluDer(const double x0, const double x1, const double x2,
-             const double x3, const double x4, const double x5,
-             const double y0, const double y1, const double y2,
-             const double y3, const double y4, const double y5,
-             const double z0, const double z1, const double z2,
-             const double z3, const double z4, const double z5,
-             double* dvdx, double* dvdy, double* dvdz)
-{
-   const double twelfth = double(1.0) / double(12.0) ;
-
-   *dvdx =
-      (y1 + y2) * (z0 + z1) - (y0 + y1) * (z1 + z2) +
-      (y0 + y4) * (z3 + z4) - (y3 + y4) * (z0 + z4) -
-      (y2 + y5) * (z3 + z5) + (y3 + y5) * (z2 + z5);
-   *dvdy =
-      - (x1 + x2) * (z0 + z1) + (x0 + x1) * (z1 + z2) -
-      (x0 + x4) * (z3 + z4) + (x3 + x4) * (z0 + z4) +
-      (x2 + x5) * (z3 + z5) - (x3 + x5) * (z2 + z5);
-
-   *dvdz =
-      - (y1 + y2) * (x0 + x1) + (y0 + y1) * (x1 + x2) -
-      (y0 + y4) * (x3 + x4) + (y3 + y4) * (x0 + x4) +
-      (y2 + y5) * (x3 + x5) - (y3 + y5) * (x2 + x5);
-
-   *dvdx *= twelfth;
-   *dvdy *= twelfth;
-   *dvdz *= twelfth;
-}
-
-/******************************************/
-
-static inline
-void CalcElemVolumeDerivative(double dvdx[8],
-                              double dvdy[8],
-                              double dvdz[8],
-                              const double x[8],
-                              const double y[8],
-                              const double z[8])
-{
-   VoluDer(x[1], x[2], x[3], x[4], x[5], x[7],
-           y[1], y[2], y[3], y[4], y[5], y[7],
-           z[1], z[2], z[3], z[4], z[5], z[7],
-           &dvdx[0], &dvdy[0], &dvdz[0]);
-   VoluDer(x[0], x[1], x[2], x[7], x[4], x[6],
-           y[0], y[1], y[2], y[7], y[4], y[6],
-           z[0], z[1], z[2], z[7], z[4], z[6],
-           &dvdx[3], &dvdy[3], &dvdz[3]);
-   VoluDer(x[3], x[0], x[1], x[6], x[7], x[5],
-           y[3], y[0], y[1], y[6], y[7], y[5],
-           z[3], z[0], z[1], z[6], z[7], z[5],
-           &dvdx[2], &dvdy[2], &dvdz[2]);
-   VoluDer(x[2], x[3], x[0], x[5], x[6], x[4],
-           y[2], y[3], y[0], y[5], y[6], y[4],
-           z[2], z[3], z[0], z[5], z[6], z[4],
-           &dvdx[1], &dvdy[1], &dvdz[1]);
-   VoluDer(x[7], x[6], x[5], x[0], x[3], x[1],
-           y[7], y[6], y[5], y[0], y[3], y[1],
-           z[7], z[6], z[5], z[0], z[3], z[1],
-           &dvdx[4], &dvdy[4], &dvdz[4]);
-   VoluDer(x[4], x[7], x[6], x[1], x[0], x[2],
-           y[4], y[7], y[6], y[1], y[0], y[2],
-           z[4], z[7], z[6], z[1], z[0], z[2],
-           &dvdx[5], &dvdy[5], &dvdz[5]);
-   VoluDer(x[5], x[4], x[7], x[2], x[1], x[3],
-           y[5], y[4], y[7], y[2], y[1], y[3],
-           z[5], z[4], z[7], z[2], z[1], z[3],
-           &dvdx[6], &dvdy[6], &dvdz[6]);
-   VoluDer(x[6], x[5], x[4], x[3], x[2], x[0],
-           y[6], y[5], y[4], y[3], y[2], y[0],
-           z[6], z[5], z[4], z[3], z[2], z[0],
-           &dvdx[7], &dvdy[7], &dvdz[7]);
-}
-
-/******************************************/
-
-static inline
-void CalcElemFBHourglassForce(double *xd, double *yd, double *zd,  double hourgam[][4],
-                              double coefficient,
-                              double *hgfx, double *hgfy, double *hgfz )
-{
-   double hxx[4];
-   for(int i = 0; i < 4; i++) {
-      hxx[i] = hourgam[0][i] * xd[0] + hourgam[1][i] * xd[1] +
-               hourgam[2][i] * xd[2] + hourgam[3][i] * xd[3] +
-               hourgam[4][i] * xd[4] + hourgam[5][i] * xd[5] +
-               hourgam[6][i] * xd[6] + hourgam[7][i] * xd[7];
-   }
-   for(int i = 0; i < 8; i++) {
-      hgfx[i] = coefficient *
-                (hourgam[i][0] * hxx[0] + hourgam[i][1] * hxx[1] +
-                 hourgam[i][2] * hxx[2] + hourgam[i][3] * hxx[3]);
-   }
-   for(int i = 0; i < 4; i++) {
-      hxx[i] = hourgam[0][i] * yd[0] + hourgam[1][i] * yd[1] +
-               hourgam[2][i] * yd[2] + hourgam[3][i] * yd[3] +
-               hourgam[4][i] * yd[4] + hourgam[5][i] * yd[5] +
-               hourgam[6][i] * yd[6] + hourgam[7][i] * yd[7];
-   }
-   for(int i = 0; i < 8; i++) {
-      hgfy[i] = coefficient *
-                (hourgam[i][0] * hxx[0] + hourgam[i][1] * hxx[1] +
-                 hourgam[i][2] * hxx[2] + hourgam[i][3] * hxx[3]);
-   }
-   for(int i = 0; i < 4; i++) {
-      hxx[i] = hourgam[0][i] * zd[0] + hourgam[1][i] * zd[1] +
-               hourgam[2][i] * zd[2] + hourgam[3][i] * zd[3] +
-               hourgam[4][i] * zd[4] + hourgam[5][i] * zd[5] +
-               hourgam[6][i] * zd[6] + hourgam[7][i] * zd[7];
-   }
-   for(int i = 0; i < 8; i++) {
-      hgfz[i] = coefficient *
-                (hourgam[i][0] * hxx[0] + hourgam[i][1] * hxx[1] +
-                 hourgam[i][2] * hxx[2] + hourgam[i][3] * hxx[3]);
-   }
-}
-
-/******************************************/
-
-static inline
 void CalcFBHourglassForceForElems()
 {
-
-#if _OPENMP
-   int numthreads = omp_get_max_threads();
-#else
-   int numthreads = 1;
-#endif
    /*************************************************
     *
     *     FUNCTION: Calculates the Flanagan-Belytschko anti-hourglass
@@ -2102,52 +1673,15 @@ void CalcFBHourglassForceForElems()
     *
     *************************************************/
   
-   double gamma_t[4*8];
-
-   // double  gamma[4][8];
-   
-   gamma_t[0] = double( 1.);
-   gamma_t[1] = double( 1.);
-   gamma_t[2] = double(-1.);
-   gamma_t[3] = double(-1.);
-   gamma_t[4] = double(-1.);
-   gamma_t[5] = double(-1.);
-   gamma_t[6] = double( 1.);
-   gamma_t[7] = double( 1.);
-   gamma_t[8] = double( 1.);
-   gamma_t[9] = double(-1.);
-   gamma_t[10] = double(-1.);
-   gamma_t[11] = double( 1.);
-   gamma_t[12] = double(-1.);
-   gamma_t[13] = double( 1.);
-   gamma_t[14] = double( 1.);
-   gamma_t[15] = double(-1.);
-   gamma_t[16] = double( 1.);
-   gamma_t[17] = double(-1.);
-   gamma_t[18] = double( 1.);
-   gamma_t[19] = double(-1.);
-   gamma_t[20] = double( 1.);
-   gamma_t[21] = double(-1.);
-   gamma_t[22] = double( 1.);
-   gamma_t[23] = double(-1.);
-   gamma_t[24] = double(-1.);
-   gamma_t[25] = double( 1.);
-   gamma_t[26] = double(-1.);
-   gamma_t[27] = double( 1.);
-   gamma_t[28] = double( 1.);
-   gamma_t[29] = double(-1.);
-   gamma_t[30] = double( 1.);
-   gamma_t[31] = double(-1.);
 /*************************************************/
 /*    compute the hourglass modes */
-   // std::cout << "hg force at " << myRank << "bit is set to " << p_xd->dirtybit<<"\n";
    op_par_loop(FBHourglassForceForElems, "CalcFBHourglassForceForElems", elems,
                op_arg_dat(p_xd, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_xd, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_xd, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_xd, 7, p_nodelist, 1, "double", OP_READ),
                op_arg_dat(p_yd, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_yd, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_yd, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_yd, 7, p_nodelist, 1, "double", OP_READ),
                op_arg_dat(p_zd, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_zd, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_zd, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_zd, 7, p_nodelist, 1, "double", OP_READ),
-               op_arg_dat(p_fx, 0, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fx, 1, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fx, 2, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 3, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 4, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 5, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 6, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fx, 7, p_nodelist, 1, "double", OP_WRITE),
-               op_arg_dat(p_fy, 0, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fy, 1, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fy, 2, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 3, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 4, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 5, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 6, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fy, 7, p_nodelist, 1, "double", OP_WRITE),
-               op_arg_dat(p_fz, 0, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fz, 1, p_nodelist, 1, "double", OP_WRITE), op_arg_dat(p_fz, 2, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 3, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 4, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 5, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 6, p_nodelist, 1, "double", OP_WRITE),op_arg_dat(p_fz, 7, p_nodelist, 1, "double", OP_WRITE),
+               op_arg_dat(p_fx, 0, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fx, 1, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fx, 2, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fx, 3, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fx, 4, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fx, 5, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fx, 6, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fx, 7, p_nodelist, 1, "double", OP_RW),
+               op_arg_dat(p_fy, 0, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fy, 1, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fy, 2, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fy, 3, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fy, 4, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fy, 5, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fy, 6, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fy, 7, p_nodelist, 1, "double", OP_RW),
+               op_arg_dat(p_fz, 0, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fz, 1, p_nodelist, 1, "double", OP_RW), op_arg_dat(p_fz, 2, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fz, 3, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fz, 4, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fz, 5, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fz, 6, p_nodelist, 1, "double", OP_RW),op_arg_dat(p_fz, 7, p_nodelist, 1, "double", OP_RW),
                op_arg_dat(p_dvdx, -1, OP_ID, 8, "double", OP_READ), 
                op_arg_dat(p_dvdy, -1, OP_ID, 8, "double", OP_READ), 
                op_arg_dat(p_dvdz, -1, OP_ID, 8, "double", OP_READ), 
@@ -2156,11 +1690,9 @@ void CalcFBHourglassForceForElems()
                op_arg_dat(p_z8n, -1, OP_ID, 8, "double", OP_READ),
                op_arg_dat(p_determ, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_ss, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_dat(p_elemMass, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_gbl(gamma_t, 1, "double", OP_READ)
+               op_arg_dat(p_elemMass, -1, OP_ID, 1, "double", OP_READ)
    );
    // MPI_Barrier(MPI_COMM_WORLD);
-   // std::cout << "hg force after at " << myRank <<"\n";
 }
 
 /******************************************/
@@ -2168,9 +1700,6 @@ void CalcFBHourglassForceForElems()
 static inline
 void CalcHourglassControlForElems()
 {
-   int numElem = m_numElem ;
-   int numElem8 = numElem * 8 ;
-
    op_par_loop(CalcVolumeDerivatives, "CalcVolumeDerivatives", elems,
                op_arg_dat(p_x, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 7, p_nodelist, 1, "double", OP_READ),
                op_arg_dat(p_y, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 7, p_nodelist, 1, "double", OP_READ),
@@ -2197,11 +1726,7 @@ void CalcHourglassControlForElems()
 static inline
 void CalcVolumeForceForElems()
 {
-   // int numElem = domain.numElem() ;
-   int numElem = m_numElem ;
-   if (numElem != 0) {
-      double  hgcoef = m_hgcoef ;
-
+   if (m_numElem != 0) {
       /* Sum contributions to total stress tensor */
       // op_print("Init stress");
       InitStressTermsForElems();
@@ -2225,11 +1750,6 @@ static inline void CalcForceForNodes()
 {
   int numNode = m_numNode ;
 
-#if USE_MPI  
-//   CommRecv(domain, MSG_COMM_SBN, 3,
-//            domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
-//            true, false) ;
-#endif  
    // op_print("Force to zero");
    op_par_loop(setForceToZero, "setForceToZero", nodes,
                op_arg_dat(p_fx, -1, OP_ID, 1, "double", OP_WRITE),
@@ -2238,18 +1758,6 @@ static inline void CalcForceForNodes()
 
   /* Calcforce calls partial, force, hourq */
   CalcVolumeForceForElems() ;
-
-#if USE_MPI  
-//   Domain_member fieldData[3] ;
-//   fieldData[0] = &Domain::fx ;
-//   fieldData[1] = &Domain::fy ;
-//   fieldData[2] = &Domain::fz ;
-  
-//   CommSend(domain, MSG_COMM_SBN, 3, fieldData,
-//            domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() +  1,
-//            true, false) ;
-//   CommSBN(domain, 3, fieldData) ;
-#endif  
 }
 
 /******************************************/
@@ -2269,26 +1777,23 @@ void CalcAccelerationForNodes()
 static inline
 void ApplyAccelerationBoundaryConditionsForNodes()
 {
-   // int size = domain.sizeX();
-   int size = sizeX;
-   int numNodeBC = (size+1)*(size+1) ;
-
-      op_par_loop(BoundaryX, "BoundaryX", nodes,
-                  op_arg_dat(p_xdd, -1, OP_ID, 1, "double", OP_WRITE),
-                  op_arg_dat(p_t_symmX, -1, OP_ID, 1, "int", OP_READ)
-                  );
+   //Possible improvement would be to check if the current rank has a boundary node at pos 0
+   op_par_loop(BoundaryX, "BoundaryX", nodes,
+               op_arg_dat(p_xdd, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_t_symmX, -1, OP_ID, 1, "int", OP_READ)
+               );
 
 
-      op_par_loop(BoundaryY, "BoundaryY", nodes,
-                  op_arg_dat(p_ydd, -1, OP_ID, 1, "double", OP_WRITE),
-                  op_arg_dat(p_t_symmY, -1, OP_ID, 1, "int", OP_READ)
-                  );
+   op_par_loop(BoundaryY, "BoundaryY", nodes,
+               op_arg_dat(p_ydd, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_t_symmY, -1, OP_ID, 1, "int", OP_READ)
+               );
 
 
-      op_par_loop(BoundaryZ, "BoundaryZ", nodes,
-                  op_arg_dat(p_zdd, -1, OP_ID, 1, "double", OP_WRITE),
-                  op_arg_dat(p_t_symmZ, -1, OP_ID, 1, "int", OP_READ)
-                  );
+   op_par_loop(BoundaryZ, "BoundaryZ", nodes,
+               op_arg_dat(p_zdd, -1, OP_ID, 1, "double", OP_WRITE),
+               op_arg_dat(p_t_symmZ, -1, OP_ID, 1, "int", OP_READ)
+               );
 
 }
 
@@ -2309,7 +1814,6 @@ void CalcVelocityForNodes()
 static inline
 void CalcPositionForNodes()
 {
-
    op_par_loop(CalcPosForNodes, "CalcPosForNodes", nodes,
                op_arg_dat(p_x, -1, OP_ID, 1, "double", OP_RW), op_arg_dat(p_y, -1, OP_ID, 1, "double", OP_RW), op_arg_dat(p_z, -1, OP_ID, 1, "double", OP_RW),
                op_arg_dat(p_xd, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_yd, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_zd, -1, OP_ID, 1, "double", OP_READ),
@@ -2322,22 +1826,11 @@ void CalcPositionForNodes()
 static inline
 void LagrangeNodal()
 {
-#ifdef SEDOV_SYNC_POS_VEL_EARLY
-   Domain_member fieldData[6] ;
-#endif
-
   /* time of boundary condition evaluation is beginning of step for force and
    * acceleration boundary conditions. */
 //   op_print("Force For Nodes");
-  CalcForceForNodes();
+   CalcForceForNodes();
 
-#if USE_MPI  
-#ifdef SEDOV_SYNC_POS_VEL_EARLY
-   // CommRecv(domain, MSG_SYNC_POS_VEL, 6,
-   //          domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
-   //          false, false) ;
-#endif
-#endif
    // std::cout << "Acceleration at " << myRank << "\n";
    CalcAccelerationForNodes();
    // std::cout << "BCs at " << myRank << "\n";
@@ -2347,95 +1840,79 @@ void LagrangeNodal()
    CalcVelocityForNodes() ;
    // std::cout << "Calc Pos at " << myRank << "\n";
    CalcPositionForNodes();
-#if USE_MPI
-#ifdef SEDOV_SYNC_POS_VEL_EARLY
-//   fieldData[0] = &Domain::x ;
-//   fieldData[1] = &Domain::y ;
-//   fieldData[2] = &Domain::z ;
-//   fieldData[3] = &Domain::xd ;
-//   fieldData[4] = &Domain::yd ;
-//   fieldData[5] = &Domain::zd ;
-
-//    CommSend(domain, MSG_SYNC_POS_VEL, 6, fieldData,
-//             domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
-//             false, false) ;
-//    CommSyncPosVel(domain) ;
-#endif
-#endif
-   
-  return;
+   return;
 }
 
 /******************************************/
 
 static inline
-double CalcElemVolume( const double x0, const double x1,
-               const double x2, const double x3,
-               const double x4, const double x5,
-               const double x6, const double x7,
-               const double y0, const double y1,
-               const double y2, const double y3,
-               const double y4, const double y5,
-               const double y6, const double y7,
-               const double z0, const double z1,
-               const double z2, const double z3,
-               const double z4, const double z5,
-               const double z6, const double z7 )
+Real_t CalcElemVolume( const Real_t x0, const Real_t x1,
+               const Real_t x2, const Real_t x3,
+               const Real_t x4, const Real_t x5,
+               const Real_t x6, const Real_t x7,
+               const Real_t y0, const Real_t y1,
+               const Real_t y2, const Real_t y3,
+               const Real_t y4, const Real_t y5,
+               const Real_t y6, const Real_t y7,
+               const Real_t z0, const Real_t z1,
+               const Real_t z2, const Real_t z3,
+               const Real_t z4, const Real_t z5,
+               const Real_t z6, const Real_t z7 )
 {
-  double twelveth = double(1.0)/double(12.0);
+  Real_t twelveth = Real_t(1.0)/Real_t(12.0);
 
-  double dx61 = x6 - x1;
-  double dy61 = y6 - y1;
-  double dz61 = z6 - z1;
+  Real_t dx61 = x6 - x1;
+  Real_t dy61 = y6 - y1;
+  Real_t dz61 = z6 - z1;
 
-  double dx70 = x7 - x0;
-  double dy70 = y7 - y0;
-  double dz70 = z7 - z0;
+  Real_t dx70 = x7 - x0;
+  Real_t dy70 = y7 - y0;
+  Real_t dz70 = z7 - z0;
 
-  double dx63 = x6 - x3;
-  double dy63 = y6 - y3;
-  double dz63 = z6 - z3;
+  Real_t dx63 = x6 - x3;
+  Real_t dy63 = y6 - y3;
+  Real_t dz63 = z6 - z3;
 
-  double dx20 = x2 - x0;
-  double dy20 = y2 - y0;
-  double dz20 = z2 - z0;
+  Real_t dx20 = x2 - x0;
+  Real_t dy20 = y2 - y0;
+  Real_t dz20 = z2 - z0;
 
-  double dx50 = x5 - x0;
-  double dy50 = y5 - y0;
-  double dz50 = z5 - z0;
+  Real_t dx50 = x5 - x0;
+  Real_t dy50 = y5 - y0;
+  Real_t dz50 = z5 - z0;
 
-  double dx64 = x6 - x4;
-  double dy64 = y6 - y4;
-  double dz64 = z6 - z4;
+  Real_t dx64 = x6 - x4;
+  Real_t dy64 = y6 - y4;
+  Real_t dz64 = z6 - z4;
 
-  double dx31 = x3 - x1;
-  double dy31 = y3 - y1;
-  double dz31 = z3 - z1;
+  Real_t dx31 = x3 - x1;
+  Real_t dy31 = y3 - y1;
+  Real_t dz31 = z3 - z1;
 
-  double dx72 = x7 - x2;
-  double dy72 = y7 - y2;
-  double dz72 = z7 - z2;
+  Real_t dx72 = x7 - x2;
+  Real_t dy72 = y7 - y2;
+  Real_t dz72 = z7 - z2;
 
-  double dx43 = x4 - x3;
-  double dy43 = y4 - y3;
-  double dz43 = z4 - z3;
+  Real_t dx43 = x4 - x3;
+  Real_t dy43 = y4 - y3;
+  Real_t dz43 = z4 - z3;
 
-  double dx57 = x5 - x7;
-  double dy57 = y5 - y7;
-  double dz57 = z5 - z7;
+  Real_t dx57 = x5 - x7;
+  Real_t dy57 = y5 - y7;
+  Real_t dz57 = z5 - z7;
 
-  double dx14 = x1 - x4;
-  double dy14 = y1 - y4;
-  double dz14 = z1 - z4;
+  Real_t dx14 = x1 - x4;
+  Real_t dy14 = y1 - y4;
+  Real_t dz14 = z1 - z4;
 
-  double dx25 = x2 - x5;
-  double dy25 = y2 - y5;
-  double dz25 = z2 - z5;
+  Real_t dx25 = x2 - x5;
+  Real_t dy25 = y2 - y5;
+  Real_t dz25 = z2 - z5;
 
 #define TRIPLE_PRODUCT(x1, y1, z1, x2, y2, z2, x3, y3, z3) \
    ((x1)*((y2)*(z3) - (z2)*(y3)) + (x2)*((z1)*(y3) - (y1)*(z3)) + (x3)*((y1)*(z2) - (z1)*(y2)))
 
-  double volume =
+  Real_t volume =
     TRIPLE_PRODUCT(dx31 + dx72, dx63, dx20,
        dy31 + dy72, dy63, dy20,
        dz31 + dz72, dz63, dz20) +
@@ -2456,148 +1933,12 @@ double CalcElemVolume( const double x0, const double x1,
 /******************************************/
 
 //inline
-double CalcElemVolume( const double x[8], const double y[8], const double z[8] )
+Real_t CalcElemVolume( const Real_t x[8], const Real_t y[8], const Real_t z[8] )
 {
 return CalcElemVolume( x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7],
                        y[0], y[1], y[2], y[3], y[4], y[5], y[6], y[7],
                        z[0], z[1], z[2], z[3], z[4], z[5], z[6], z[7]);
 }
-
-/******************************************/
-
-static inline
-double AreaFace( const double x0, const double x1,
-                 const double x2, const double x3,
-                 const double y0, const double y1,
-                 const double y2, const double y3,
-                 const double z0, const double z1,
-                 const double z2, const double z3)
-{
-   double fx = (x2 - x0) - (x3 - x1);
-   double fy = (y2 - y0) - (y3 - y1);
-   double fz = (z2 - z0) - (z3 - z1);
-   double gx = (x2 - x0) + (x3 - x1);
-   double gy = (y2 - y0) + (y3 - y1);
-   double gz = (z2 - z0) + (z3 - z1);
-   double area =
-      (fx * fx + fy * fy + fz * fz) *
-      (gx * gx + gy * gy + gz * gz) -
-      (fx * gx + fy * gy + fz * gz) *
-      (fx * gx + fy * gy + fz * gz);
-   return area ;
-}
-
-/******************************************/
-
-static inline
-double CalcElemCharacteristicLength( const double x[8],
-                                     const double y[8],
-                                     const double z[8],
-                                     const double volume)
-{
-   double a, charLength = double(0.0);
-
-   a = AreaFace(x[0],x[1],x[2],x[3],
-                y[0],y[1],y[2],y[3],
-                z[0],z[1],z[2],z[3]) ;
-   charLength = std::max(a,charLength) ;
-
-   a = AreaFace(x[4],x[5],x[6],x[7],
-                y[4],y[5],y[6],y[7],
-                z[4],z[5],z[6],z[7]) ;
-   charLength = std::max(a,charLength) ;
-
-   a = AreaFace(x[0],x[1],x[5],x[4],
-                y[0],y[1],y[5],y[4],
-                z[0],z[1],z[5],z[4]) ;
-   charLength = std::max(a,charLength) ;
-
-   a = AreaFace(x[1],x[2],x[6],x[5],
-                y[1],y[2],y[6],y[5],
-                z[1],z[2],z[6],z[5]) ;
-   charLength = std::max(a,charLength) ;
-
-   a = AreaFace(x[2],x[3],x[7],x[6],
-                y[2],y[3],y[7],y[6],
-                z[2],z[3],z[7],z[6]) ;
-   charLength = std::max(a,charLength) ;
-
-   a = AreaFace(x[3],x[0],x[4],x[7],
-                y[3],y[0],y[4],y[7],
-                z[3],z[0],z[4],z[7]) ;
-   charLength = std::max(a,charLength) ;
-
-   charLength = double(4.0) * volume / SQRT(charLength);
-
-   return charLength;
-}
-
-/******************************************/
-
-static inline
-void CalcElemVelocityGradient( const double* const xvel,
-                                const double* const yvel,
-                                const double* const zvel,
-                                const double b[][8],
-                                const double detJ,
-                                double* const d )
-{
-  const double inv_detJ = double(1.0) / detJ ;
-  double dyddx, dxddy, dzddx, dxddz, dzddy, dyddz;
-  const double* const pfx = b[0];
-  const double* const pfy = b[1];
-  const double* const pfz = b[2];
-
-  d[0] = inv_detJ * ( pfx[0] * (xvel[0]-xvel[6])
-                     + pfx[1] * (xvel[1]-xvel[7])
-                     + pfx[2] * (xvel[2]-xvel[4])
-                     + pfx[3] * (xvel[3]-xvel[5]) );
-
-  d[1] = inv_detJ * ( pfy[0] * (yvel[0]-yvel[6])
-                     + pfy[1] * (yvel[1]-yvel[7])
-                     + pfy[2] * (yvel[2]-yvel[4])
-                     + pfy[3] * (yvel[3]-yvel[5]) );
-
-  d[2] = inv_detJ * ( pfz[0] * (zvel[0]-zvel[6])
-                     + pfz[1] * (zvel[1]-zvel[7])
-                     + pfz[2] * (zvel[2]-zvel[4])
-                     + pfz[3] * (zvel[3]-zvel[5]) );
-
-  dyddx  = inv_detJ * ( pfx[0] * (yvel[0]-yvel[6])
-                      + pfx[1] * (yvel[1]-yvel[7])
-                      + pfx[2] * (yvel[2]-yvel[4])
-                      + pfx[3] * (yvel[3]-yvel[5]) );
-
-  dxddy  = inv_detJ * ( pfy[0] * (xvel[0]-xvel[6])
-                      + pfy[1] * (xvel[1]-xvel[7])
-                      + pfy[2] * (xvel[2]-xvel[4])
-                      + pfy[3] * (xvel[3]-xvel[5]) );
-
-  dzddx  = inv_detJ * ( pfx[0] * (zvel[0]-zvel[6])
-                      + pfx[1] * (zvel[1]-zvel[7])
-                      + pfx[2] * (zvel[2]-zvel[4])
-                      + pfx[3] * (zvel[3]-zvel[5]) );
-
-  dxddz  = inv_detJ * ( pfz[0] * (xvel[0]-xvel[6])
-                      + pfz[1] * (xvel[1]-xvel[7])
-                      + pfz[2] * (xvel[2]-xvel[4])
-                      + pfz[3] * (xvel[3]-xvel[5]) );
-
-  dzddy  = inv_detJ * ( pfy[0] * (zvel[0]-zvel[6])
-                      + pfy[1] * (zvel[1]-zvel[7])
-                      + pfy[2] * (zvel[2]-zvel[4])
-                      + pfy[3] * (zvel[3]-zvel[5]) );
-
-  dyddz  = inv_detJ * ( pfz[0] * (yvel[0]-yvel[6])
-                      + pfz[1] * (yvel[1]-yvel[7])
-                      + pfz[2] * (yvel[2]-yvel[4])
-                      + pfz[3] * (yvel[3]-yvel[5]) );
-  d[5]  = double( .5) * ( dxddy + dyddx );
-  d[4]  = double( .5) * ( dxddz + dzddx );
-  d[3]  = double( .5) * ( dzddy + dyddz );
-}
-
-/******************************************/
 
 //static inline
 void CalcKinematicsForElems()
@@ -2624,12 +1965,7 @@ void CalcKinematicsForElems()
 static inline
 void CalcLagrangeElements()
 {
-   // int numElem = domain.numElem() ;
-   int numElem = m_numElem ;
-   if (numElem > 0) {
-      // const double deltatime = domain.deltatime() ;
-      const double deltatime = m_deltatime ;
-
+   if (m_numElem > 0) {
       CalcKinematicsForElems() ;
 
       op_par_loop(CalcLagrangeElemRemaining, "CalcLagrangeElemRemaining", elems,
@@ -2646,9 +1982,6 @@ void CalcLagrangeElements()
 static inline
 void CalcMonotonicQGradientsForElems()
 {
-   // int numElem = domain.numElem();
-   int numElem = m_numElem;
-
    op_par_loop(CalcMonotonicQGradientsForElem, "CalcMonotonicQGradientsForElem", elems,
                op_arg_dat(p_x, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_x, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_x, 7, p_nodelist, 1, "double", OP_READ),
                op_arg_dat(p_y, 0, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 1, p_nodelist, 1, "double", OP_READ), op_arg_dat(p_y, 2, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 3, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 4, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 5, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 6, p_nodelist, 1, "double", OP_READ),op_arg_dat(p_y, 7, p_nodelist, 1, "double", OP_READ),
@@ -2672,11 +2005,6 @@ void CalcMonotonicQGradientsForElems()
 static inline
 void CalcMonotonicQRegionForElems(double ptiny)
 {
-   double monoq_limiter_mult = m_monoq_limiter_mult;
-   double monoq_max_slope = m_monoq_max_slope;
-   double qlc_monoq = m_qlc_monoq;
-   double qqc_monoq = m_qqc_monoq;
-
    op_par_loop(CalcMonotonicQRegionForElem, "CalcMonotonicQRegionForElem",elems,
                op_arg_dat(p_delv_xi, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_delv_xi, 0, p_lxim, 1, "double", OP_READ),op_arg_dat(p_delv_xi, 0, p_lxip, 1, "double", OP_READ),
                op_arg_dat(p_delv_eta, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_delv_eta, 0, p_letam, 1, "double", OP_READ),op_arg_dat(p_delv_eta, 0, p_letap, 1, "double", OP_READ),
@@ -2687,10 +2015,8 @@ void CalcMonotonicQRegionForElems(double ptiny)
                op_arg_dat(p_qq, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_ql, -1, OP_ID, 1, "double", OP_WRITE),
                op_arg_dat(p_elemMass, -1, OP_ID, 1, "double", OP_READ), 
                op_arg_dat(p_volo, -1, OP_ID, 1, "double", OP_READ), 
-               op_arg_dat(p_vnew, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_gbl(&ptiny, 1, "double", OP_READ),
-               op_arg_gbl(&monoq_limiter_mult, 1, "double", OP_READ),
-               op_arg_gbl(&monoq_max_slope, 1, "double", OP_READ));
+               op_arg_dat(p_vnew, -1, OP_ID, 1, "double", OP_READ)
+               );
 
 }
 
@@ -2707,6 +2033,8 @@ void CalcMonotonicQForElems()
    //
    // calculate the monotonic q for all regions
    //
+   // The OP2 version does not support multiple regions yet
+   // Code is left here for future reference
    // for (int r=0 ; r<domain.numReg() ; ++r) {
    // for (int r=0 ; r<m_numReg ; ++r) {
       // if (domain.regElemSize(r) > 0) {
@@ -2727,44 +2055,11 @@ void CalcQForElems()
    //
    // MONOTONIC Q option
    //
-
-   // int numElem = domain.numElem() ;
-   int numElem = m_numElem ;
-
-   if (numElem != 0) {
-      int allElem = numElem +  /* local elem */
-            2*sizeX*sizeY + /* plane ghosts */
-            2*sizeX*sizeZ + /* row ghosts */
-            2*sizeY*sizeZ ; /* col ghosts */
-
-      // domain.AllocateGradients(numElem, allElem);
-      // AllocGradients(numElem, allElem);
-
-#if USE_MPI      
-      // CommRecv(domain, MSG_MONOQ, 3,
-      //          domain.sizeX(), domain.sizeY(), domain.sizeZ(),
-      //          true, true) ;
-#endif      
+   if (m_numElem != 0) {
 
       /* Calculate velocity gradients */
       CalcMonotonicQGradientsForElems();
-
-#if USE_MPI      
-      // Domain_member fieldData[3] ;
-      
-      // /* Transfer veloctiy gradients in the first order elements */
-      // /* problem->commElements->Transfer(CommElements::monoQ) ; */
-
-      // fieldData[0] = &Domain::delv_xi ;
-      // fieldData[1] = &Domain::delv_eta ;
-      // fieldData[2] = &Domain::delv_zeta ;
-
-      // CommSend(domain, MSG_MONOQ, 3, fieldData,
-      //          domain.sizeX(), domain.sizeY(), domain.sizeZ(),
-      //          true, true) ;
-
-      // CommMonoQ(domain) ;
-#endif      
+    
       CalcMonotonicQForElems();
       // Free up memory
       // domain.DeallocateGradients();
@@ -2796,10 +2091,8 @@ void CalcPressureForElemsHalfstep(double* p_new, double* bvc,
                op_arg_dat(p_pHalfStep, -1, OP_ID, 1, "double", OP_RW),
                op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_gbl(&p_cut, 1, "double", OP_READ),
-               op_arg_gbl(&eosvmax, 1, "double", OP_READ),
-               op_arg_gbl(&pmin, 1, "double", OP_READ));
+               op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ)
+               );
 }
 
 static inline
@@ -2820,10 +2113,8 @@ void CalcPressureForElems(double* p_new, double* bvc,
                op_arg_dat(p_p_new, -1, OP_ID, 1, "double", OP_WRITE),
                op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_gbl(&p_cut, 1, "double", OP_READ),
-               op_arg_gbl(&eosvmax, 1, "double", OP_READ),
-               op_arg_gbl(&pmin, 1, "double", OP_READ));
+               op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ)
+               );
 }
 
 /******************************************/
@@ -2846,7 +2137,6 @@ void CalcEnergyForElems(double* p_new, double* e_new, double* q_new,
    op_par_loop(CalcNewE, "CalcNewE", elems,
                op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_WRITE),
                op_arg_dat(p_e_old, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_gbl(&emin, 1, "double", OP_READ),
                op_arg_dat(p_delvc, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_p_old, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_q_old, -1, OP_ID, 1, "double", OP_READ),
@@ -2867,15 +2157,12 @@ void CalcEnergyForElems(double* p_new, double* e_new, double* q_new,
                op_arg_dat(p_ql_old, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_qq_old, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_p_old, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_dat(p_q_old, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_gbl(&rho0, 1, "double", OP_READ)
+               op_arg_dat(p_q_old, -1, OP_ID, 1, "double", OP_READ)
    );
 
    op_par_loop(CalcNewEStep3, "CalcNewEStep3", elems,
                op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_RW),
-               op_arg_dat(p_work, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_gbl(&e_cut, 1, "double", OP_READ),
-               op_arg_gbl(&emin, 1, "double", OP_READ)
+               op_arg_dat(p_work, -1, OP_ID, 1, "double", OP_READ)
    );
 
    CalcPressureForElems(p_new, bvc, pbvc, e_new, compression, vnewc,
@@ -2893,10 +2180,7 @@ void CalcEnergyForElems(double* p_new, double* e_new, double* q_new,
                op_arg_dat(p_p_old, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_q_old, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_q_new, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_dat(p_pHalfStep, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_gbl(&rho0, 1, "double", OP_READ),
-               op_arg_gbl(&e_cut, 1, "double", OP_READ),
-               op_arg_gbl(&emin, 1, "double", OP_READ)
+               op_arg_dat(p_pHalfStep, -1, OP_ID, 1, "double", OP_READ)
    );
 
    CalcPressureForElems(p_new, bvc, pbvc, e_new, compression, vnewc,
@@ -2911,9 +2195,8 @@ void CalcEnergyForElems(double* p_new, double* e_new, double* q_new,
                op_arg_dat(p_p_new, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_q_new, -1, OP_ID, 1, "double", OP_RW),
                op_arg_dat(p_ql_old, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_dat(p_qq_old, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_gbl(&rho0, 1, "double", OP_READ),
-               op_arg_gbl(&q_cut, 1, "double", OP_READ));
+               op_arg_dat(p_qq_old, -1, OP_ID, 1, "double", OP_READ)
+               );
    
 
    return ;
@@ -2924,16 +2207,14 @@ void CalcEnergyForElems(double* p_new, double* e_new, double* q_new,
 static inline
 void CalcSoundSpeedForElems(double rho0)
 {
-
    op_par_loop(CalcSoundSpeedForElem, "CalcSoundSpeedForElem", elems,
                op_arg_dat(p_pbvc, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_p_new, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_dat(p_ss, -1, OP_ID, 1, "double", OP_WRITE),
-               op_arg_gbl(&rho0, 1, "double", OP_READ));
-
+               op_arg_dat(p_ss, -1, OP_ID, 1, "double", OP_WRITE)
+               );
 }
 
 /******************************************/
@@ -2985,8 +2266,7 @@ void EvalEOSForElems(double *vnewc,
             op_par_loop(CheckEOSLowerBound, "CheckEOSLowerBound", elems,
                         op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
                         op_arg_dat(p_compHalfStep, -1, OP_ID, 1, "double", OP_WRITE),
-                        op_arg_dat(p_compression, -1, OP_ID, 1, "double", OP_READ),
-                        op_arg_gbl(&eosvmin, 1, "double", OP_READ)
+                        op_arg_dat(p_compression, -1, OP_ID, 1, "double", OP_READ)
             );
 
          }
@@ -2995,8 +2275,7 @@ void EvalEOSForElems(double *vnewc,
                         op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_READ),
                         op_arg_dat(p_compHalfStep, -1, OP_ID, 1, "double", OP_WRITE),
                         op_arg_dat(p_compression, -1, OP_ID, 1, "double", OP_WRITE),
-                        op_arg_dat(p_p_old, -1, OP_ID, 1, "double", OP_WRITE),
-                        op_arg_gbl(&eosvmax, 1, "double", OP_READ)
+                        op_arg_dat(p_p_old, -1, OP_ID, 1, "double", OP_WRITE)
             );
 
          }
@@ -3012,13 +2291,11 @@ void EvalEOSForElems(double *vnewc,
                          numElemReg, regElemList);
    }
 
-
    op_par_loop(CopyTempEOSVarsBack, "CopyTempEOSVarsBack", elems,
                op_arg_dat(p_p, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_p_new, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_e, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_e_new, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_q, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_q_new, -1, OP_ID, 1, "double", OP_READ)
    );
-
 
    CalcSoundSpeedForElems(rho0) ;
 
@@ -3030,14 +2307,10 @@ void EvalEOSForElems(double *vnewc,
 static inline
 void ApplyMaterialPropertiesForElems()
 {
-   // int numElem = domain.numElem() ;
-   int numElem = m_numElem ;
-
-  if (m_numElem != 0) {
+   if (m_numElem != 0) {
     /* Expose all of the variables needed for material evaluation */
     double eosvmin = m_eosvmin ;
     double eosvmax = m_eosvmax ;
-    //double *vnewc = Allocate<double>(numElem) ;
 
       // double* tes = (double*) malloc(m_numElem*sizeof(double));
       // op_fetch_data(p_vnew, tes);
@@ -3053,18 +2326,18 @@ void ApplyMaterialPropertiesForElems()
        // Bound the updated relative volumes with eosvmin/max
       // MPI_Barrier(MPI_COMM_WORLD);
       // op_print("Lower Bound");
-       if (eosvmin != double(0.)) {
+       if (m_eosvmin != double(0.)) {
          op_par_loop(ApplyLowerBoundToVelocity, "ApplyLowerBoundToVelocity", elems,
-                  op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_WRITE),
-                  op_arg_gbl(&eosvmin, 1, "double", OP_READ));
+                  op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_WRITE)
+                  );
 
        }
       // MPI_Barrier(MPI_COMM_WORLD);
       // op_print("Upper bound");
-       if (eosvmax != double(0.)) {
+       if (m_eosvmax != double(0.)) {
          op_par_loop(ApplyUpperBoundToVelocity, "ApplyUpperBoundToVelocity", elems,
-                  op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_WRITE),
-                  op_arg_gbl(&eosvmax, 1, "double", OP_READ));
+                  op_arg_dat(p_vnewc, -1, OP_ID, 1, "double", OP_WRITE)
+                  );
        }
 
        // This check may not make perfect sense in LULESH, but
@@ -3073,18 +2346,13 @@ void ApplyMaterialPropertiesForElems()
       // MPI_Barrier(MPI_COMM_WORLD);
       // op_print("Ale3d");
       op_par_loop(ALE3DRelevantCheck, "ALE3DRelevantCheck", elems,
-                  op_arg_dat(p_v, -1, OP_ID, 1, "double", OP_READ),
-                  op_arg_gbl(&eosvmin, 1, "double", OP_READ),
-                  op_arg_gbl(&eosvmax, 1, "double", OP_READ)
+                  op_arg_dat(p_v, -1, OP_ID, 1, "double", OP_READ)
                   );
 
     
 
-   //  for (int r=0 ; r<domain.numReg() ; r++) {
    //  for (int r=0 ; r<m_numReg ; r++) {
-   //    //  int numElemReg = domain.regElemSize(r);
    //     int numElemReg = m_regElemSize[r];
-   //    //  int *regElemList = domain.regElemlist(r);
    //     int *regElemList = m_regElemlist[r];
    //     int rep;
    //     //Determine load imbalance for this region
@@ -3093,17 +2361,15 @@ void ApplyMaterialPropertiesForElems()
    //     if(r < m_numReg/2)
 	//  rep = 1;
    //     //you don't get an expensive region unless you at least have 5 regions
-   //    //  else if(r < (domain.numReg() - (domain.numReg()+15)/20))
    //     else if(r < (m_numReg - (m_numReg+15)/20))
-   //       // rep = 1 + domain.cost();
    //       rep = 1 + m_cost;
    //     //very expensive regions
    //     else
 	//  rep = 10 * (1+ domain.cost());
 	//  rep = 10 * (1+ m_cost);
-      //  EvalEOSForElems(domain, vnewc, numElemReg, regElemList, rep);
-      // MPI_Barrier(MPI_COMM_WORLD);
-      // op_print("Eval EOS");
+   //     EvalEOSForElems(domain, vnewc, numElemReg, regElemList, rep);
+   //    MPI_Barrier(MPI_COMM_WORLD);
+   //    op_print("Eval EOS");
        EvalEOSForElems(vnewc, m_regElemSize[0], m_regElemlist[0], 1);
    //  }
 
@@ -3123,7 +2389,6 @@ void UpdateVolumesForElems()
                );
 
    }
-
    return ;
 }
 
@@ -3144,8 +2409,6 @@ void LagrangeElements()
    // op_print("Material props");
   ApplyMaterialPropertiesForElems() ;
 
-//   UpdateVolumesForElems(domain, 
-//                         domain.v_cut(), numElem) ;
 // MPI_Barrier(MPI_COMM_WORLD);
 //    op_print("Update Vols for Elems");
   UpdateVolumesForElems() ;
@@ -3183,7 +2446,6 @@ void CalcCourantConstraintForElems(int length,
                op_arg_dat(p_ss, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_vdov, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_arealg, -1, OP_ID, 1, "double", OP_READ),
-               op_arg_gbl(&qqc2, 1, "double", OP_READ),
                op_arg_gbl(&m_dtcourant, 1, "double", OP_MIN)
    );
    }
@@ -3262,9 +2524,6 @@ void CalcTimeConstraintsForElems() {
 static inline
 void LagrangeLeapFrog()
 {
-#ifdef SEDOV_SYNC_POS_VEL_LATE
-   Domain_member fieldData[6] ;
-#endif
 
    /* calculate nodal forces, accelerations, velocities, positions, with
     * applied boundary conditions and slide surface considerations */
@@ -3272,41 +2531,14 @@ void LagrangeLeapFrog()
    LagrangeNodal();
 
    // op_dump_dat()
-#ifdef SEDOV_SYNC_POS_VEL_LATE
-#endif
 
    /* calculate element quantities (i.e. velocity gradient & q), and update
     * material states */
    // MPI_Barrier(MPI_COMM_WORLD);
    // op_print("Elements");
    LagrangeElements();
-
-#if USE_MPI   
-#ifdef SEDOV_SYNC_POS_VEL_LATE
-   // CommRecv(domain, MSG_SYNC_POS_VEL, 6,
-   //          domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
-   //          false, false) ;
-
-   // fieldData[0] = &Domain::x ;
-   // fieldData[1] = &Domain::y ;
-   // fieldData[2] = &Domain::z ;
-   // fieldData[3] = &Domain::xd ;
-   // fieldData[4] = &Domain::yd ;
-   // fieldData[5] = &Domain::zd ;
-   
-   // CommSend(domain, MSG_SYNC_POS_VEL, 6, fieldData,
-   //          domain.sizeX() + 1, domain.sizeY() + 1, domain.sizeZ() + 1,
-   //          false, false) ;
-#endif
-#endif   
-
+ 
    CalcTimeConstraintsForElems();
-
-#if USE_MPI   
-#ifdef SEDOV_SYNC_POS_VEL_LATE
-   // CommSyncPosVel(domain) ;
-#endif
-#endif   
 }
 
 
@@ -3466,11 +2698,32 @@ void ParseCommandLineOptions(int argc, char *argv[],
          else if(strcmp(argv[i], "OP_NO_REALLOC" ) == 0){
             i++;
          }
+         else if(strcmp(argv[i], "-l") == 0){
+            if (i+1 >= argc) {
+               ParseError("Missing integer argument to -l\n", myRank);
+            }
+            ok = StrToInt(argv[i+1], &(opts->itert));
+            if(!ok) {
+               ParseError("Parse Error on option -l integer value required after argument\n", myRank);
+            }
+            i+=2;
+         }
+            else if(strcmp(argv[i], "-z") == 0){
+            if (i+1 >= argc) {
+               ParseError("Missing integer argument to -z\n", myRank);
+            }
+            ok = StrToInt(argv[i+1], &(opts->fnm));
+            if(!ok) {
+               ParseError("Parse Error on option -z integer value required after argument\n", myRank);
+            }
+            i+=2;
+         }
          else {
             char msg[80];
-            PrintCommandLineOptions(argv[0], myRank);
-            sprintf(msg, "ERROR: Unknown command line argument: %s\n", argv[i]);
-            ParseError(msg, myRank);
+            i++;
+            // PrintCommandLineOptions(argv[0], myRank);
+            // sprintf(msg, "ERROR: Unknown command line argument: %s\n", argv[i]);
+            // ParseError(msg, myRank);
          }
       }
    }
@@ -3605,29 +2858,11 @@ void InitMeshDecomp(int numRanks, int myRank,
 int main(int argc, char *argv[])
 {
    op_init(argc, argv, 1);
-   // Domain *locDom ;
 
    int numRanks ;
-   struct cmdLineOpts opts;
 
 
-#if USE_MPI   
-   Domain_member fieldData ;
-   
-#ifdef _OPENMP
-   // int thread_support;
-
-   // MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &thread_support);
-   // if (thread_support==MPI_THREAD_SINGLE)
-   //  {
-   //      fprintf(stderr,"The MPI implementation has no support for threading\n");
-   //      MPI_Finalize();
-   //      exit(1);
-   //  }
-#else
-   // MPI_Init(&argc, &argv);
-#endif
-    
+#if USE_MPI      
    MPI_Comm_size(MPI_COMM_WORLD, &numRanks) ;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank) ;
 #else
@@ -3645,6 +2880,7 @@ int main(int argc, char *argv[])
    opts.viz = 0;
    opts.balance = 1;
    opts.cost = 1;
+   opts.itert = 1;
 
 
    ParseCommandLineOptions(argc, argv, myRank, &opts);
@@ -3669,9 +2905,6 @@ int main(int argc, char *argv[])
    int col, row, plane, side;
    InitMeshDecomp(numRanks, myRank, &col, &row, &plane, &side);
 
-   // Build the main data structure and initialize it
-   // locDom = new Domain(numRanks, col, row, plane, opts.nx,
-   //                     side, opts.numReg, opts.balance, opts.cost) ;
    int edgeElems = opts.nx;
    int edgeNodes = edgeElems+1;
 
@@ -3697,6 +2930,39 @@ int main(int argc, char *argv[])
    m_time    = double(0.) ;
    m_cycle   = int(0) ;
 
+   m_gamma_t[0] = double( 1.);
+   m_gamma_t[1] = double( 1.);
+   m_gamma_t[2] = double(-1.);
+   m_gamma_t[3] = double(-1.);
+   m_gamma_t[4] = double(-1.);
+   m_gamma_t[5] = double(-1.);
+   m_gamma_t[6] = double( 1.);
+   m_gamma_t[7] = double( 1.);
+   m_gamma_t[8] = double( 1.);
+   m_gamma_t[9] = double(-1.);
+   m_gamma_t[10] = double(-1.);
+   m_gamma_t[11] = double( 1.);
+   m_gamma_t[12] = double(-1.);
+   m_gamma_t[13] = double( 1.);
+   m_gamma_t[14] = double( 1.);
+   m_gamma_t[15] = double(-1.);
+   m_gamma_t[16] = double( 1.);
+   m_gamma_t[17] = double(-1.);
+   m_gamma_t[18] = double( 1.);
+   m_gamma_t[19] = double(-1.);
+   m_gamma_t[20] = double( 1.);
+   m_gamma_t[21] = double(-1.);
+   m_gamma_t[22] = double( 1.);
+   m_gamma_t[23] = double(-1.);
+   m_gamma_t[24] = double(-1.);
+   m_gamma_t[25] = double( 1.);
+   m_gamma_t[26] = double(-1.);
+   m_gamma_t[27] = double( 1.);
+   m_gamma_t[28] = double( 1.);
+   m_gamma_t[29] = double(-1.);
+   m_gamma_t[30] = double( 1.);
+   m_gamma_t[31] = double(-1.);
+
    //Declare Constants
    op_decl_const(1, "double", &m_e_cut);
    op_decl_const(1, "double", &m_p_cut);
@@ -3718,6 +2984,15 @@ int main(int argc, char *argv[])
    op_decl_const(1, "double", &m_emin);
    op_decl_const(1, "double", &m_dvovmax);
    op_decl_const(1, "double", &m_refdens);
+   op_decl_const(1, "double", &m_qqc2);
+
+   op_decl_const(1, "double", &m_ptiny);
+   op_decl_const(32, "double", m_gamma_t);
+   op_decl_const(1, "double", &m_twelfth);
+   op_decl_const(1, "double", &m_sixth);
+   op_decl_const(1, "double", &m_c1s);
+   op_decl_const(1, "double", &m_ssc_thresh);
+   op_decl_const(1, "double", &m_ssc_low);
 
    char file[] = FILE_NAME_PATH;
    // readAndInitVars(file);
@@ -3733,52 +3008,23 @@ int main(int argc, char *argv[])
    // op_write_const_hdf5("deltatime", 1, "double", (char*)&m_deltatime, FILE_NAME_PATH);
    // MPI_Barrier(MPI_COMM_WORLD);
    
-
-#if USE_MPI   
-   // fieldData = &Domain::nodalMass ;
-
-   // // Initial domain boundary communication 
-   // CommRecv(*locDom, MSG_COMM_SBN, 1,
-   //          locDom->sizeX() + 1, locDom->sizeY() + 1, locDom->sizeZ() + 1,
-   //          true, false) ;
-   // CommSend(*locDom, MSG_COMM_SBN, 1, &fieldData,
-   //          locDom->sizeX() + 1, locDom->sizeY() + 1, locDom->sizeZ() +  1,
-   //          true, false) ;
-   // CommSBN(*locDom, 1, &fieldData) ;
-
-   // // End initialization
-   // MPI_Barrier(MPI_COMM_WORLD);
-#endif   
-   
    // BEGIN timestep to solution */
-#if USE_MPI   
-   double start = MPI_Wtime();
-#else
-   timeval start;
-   gettimeofday(&start, NULL) ;
    double cpu_t1, cpu_t2, wall_t1, wall_t2;
    op_timers(&cpu_t1, &wall_t1);
-   
-#endif
 //debug to see region sizes
 //   for(int i = 0; i < locDom->numReg(); i++)
 //      std::cout << "region" << i + 1<< "size" << locDom->regElemSize(i) <<std::endl;
 
    // !Main Loop
-   // while((locDom->time() < locDom->stoptime()) && (locDom->cycle() < opts.its)) {
    while((m_time < m_stoptime) && (m_cycle < opts.its)) {
-   // while((time < stoptime) && (cycle < opts.its)) {
       // op_print("Incrment");
       TimeIncrement() ;
       // op_print("Leapfrog");
       LagrangeLeapFrog() ;
 
       if ((opts.showProg != 0) && (opts.quiet == 0) && (myRank == 0)) {
-         // std::cout << "cycle = " << locDom->cycle()       << ", "
          std::cout << "cycle = " << m_cycle       << ", "
                    << std::scientific
-                  //  << "time = " << double(locDom->time()) << ", "
-                  //  << "dt="     << double(locDom->deltatime()) << "\n";
                    << "time = " << double(m_time) << ", "
                    << "dt="     << double(m_deltatime) << "\n";
          std::cout.unsetf(std::ios_base::floatfield);
@@ -3787,27 +3033,11 @@ int main(int argc, char *argv[])
    op_timers(&cpu_t2, &wall_t2);
    double walltime = wall_t2 - wall_t1;
 
-   // Use reduced max elapsed time
-   double elapsed_time;
-#if USE_MPI   
-   elapsed_time = MPI_Wtime() - start;
-#else
-   timeval end;
-   gettimeofday(&end, NULL) ;
-   elapsed_time = (double)(end.tv_sec - start.tv_sec) + ((double)(end.tv_usec - start.tv_usec))/1000000 ;
-#endif
-   double elapsed_timeG;
-#if USE_MPI   
-   MPI_Reduce(&elapsed_time, &elapsed_timeG, 1, MPI_DOUBLE,
-              MPI_MAX, 0, MPI_COMM_WORLD);
-#else
-   elapsed_timeG = elapsed_time;
-#endif
-
    // Write out final viz file */
-   if (opts.viz) {
+   // Currently no support for visualisation
+   // if (opts.viz) {
       // DumpToVisit(*locDom, opts.numFiles, myRank, numRanks) ;
-   }
+   // }
 
    double *verify_e = (double*) malloc(m_numElem*sizeof(double));
    op_fetch_data(p_e, verify_e);
@@ -3816,13 +3046,8 @@ int main(int argc, char *argv[])
       VerifyAndWriteFinalOutput(walltime, m_cycle, opts.nx, numRanks, verify_e);
    }
 
-   // delete locDom;
-   op_timing_output();
+   // op_timing_output();
    op_exit(); 
-
-#if USE_MPI
-   // MPI_Finalize() ;
-#endif
 
    return 0 ;
 }

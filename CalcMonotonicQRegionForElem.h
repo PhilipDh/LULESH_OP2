@@ -38,17 +38,14 @@ inline void CalcMonotonicQRegionForElem(
     const int *elemBC,
     const double *m_vdov,
     double *qq, double *ql,
-    const double *elemMass, const double *volo, const double *vnew,
-    const double *ptiny,
-    const double *monoq_limiter_mult,
-    const double *monoq_max_slope
+    const double *elemMass, const double *volo, const double *vnew
 ){
     double qlin, qquad ;
     double phixi, phieta, phizeta ;
     double delvm = 0.0, delvp =0.0;
     int bcMask = elemBC[0] ;
 
-    double norm = double(1.) / (delv_xi[0]+ (*ptiny) ) ;
+    double norm = double(1.) / (delv_xi[0]+ m_ptiny ) ;
 
     switch (bcMask & 0x00007) { //XI_M
     case 0x00004: /* needs comm data */ //XI_M_COMM
@@ -74,16 +71,16 @@ inline void CalcMonotonicQRegionForElem(
 
     phixi = double(.5) * ( delvm + delvp ) ;
 
-    delvm *= (*monoq_limiter_mult) ;
-    delvp *= (*monoq_limiter_mult) ;
+    delvm *= m_monoq_limiter_mult ;
+    delvp *= m_monoq_limiter_mult ;
 
     if ( delvm < phixi ) phixi = delvm ;
     if ( delvp < phixi ) phixi = delvp ;
     if ( phixi < double(0.)) phixi = double(0.) ;
-    if ( phixi > (*monoq_max_slope)) phixi = (*monoq_max_slope);
+    if ( phixi > m_monoq_max_slope) phixi = m_monoq_max_slope;
 
     /*  phieta     */
-    norm = double(1.) / ( delv_eta[0] + (*ptiny) ) ;
+    norm = double(1.) / ( delv_eta[0] + m_ptiny ) ;
 
     switch (bcMask & 0x001c0) { //ETA_M
         case 0x00100: /* needs comm data */ // ETA_M_COMM
@@ -109,17 +106,17 @@ inline void CalcMonotonicQRegionForElem(
 
     phieta = double(.5) * ( delvm + delvp ) ;
 
-    delvm *= (*monoq_limiter_mult) ;
-    delvp *= (*monoq_limiter_mult) ;
+    delvm *= m_monoq_limiter_mult ;
+    delvp *= m_monoq_limiter_mult ;
 
     if ( delvm  < phieta ) phieta = delvm ;
     if ( delvp  < phieta ) phieta = delvp ;
     if ( phieta < double(0.)) phieta = double(0.) ;
-    if ( phieta > (*monoq_max_slope))  phieta = (*monoq_max_slope);
+    if ( phieta > m_monoq_max_slope)  phieta = m_monoq_max_slope;
 
     /*  phizeta     */
     // norm = double(1.) / ( domain.delv_zeta(ielem) + ptiny ) ;
-    norm = double(1.) / ( delv_zeta[0] + (*ptiny) ) ;
+    norm = double(1.) / ( delv_zeta[0] + m_ptiny ) ;
 
     switch (bcMask & 0x07000) { //ZETA_M
         case 0x04000: /* needs comm data */ // ZETA_M_COMM
@@ -145,13 +142,13 @@ inline void CalcMonotonicQRegionForElem(
 
     phizeta = double(.5) * ( delvm + delvp ) ;
 
-    delvm *= (*monoq_limiter_mult) ;
-    delvp *= (*monoq_limiter_mult) ;
+    delvm *= m_monoq_limiter_mult ;
+    delvp *= m_monoq_limiter_mult ;
 
     if ( delvm   < phizeta ) phizeta = delvm ;
     if ( delvp   < phizeta ) phizeta = delvp ;
     if ( phizeta < double(0.)) phizeta = double(0.);
-    if ( phizeta > (*monoq_max_slope)  ) phizeta = (*monoq_max_slope);
+    if ( phizeta > m_monoq_max_slope  ) phizeta = m_monoq_max_slope;
 
     /* Remove length scale */
     if ( m_vdov[0] > double(0.) )  {

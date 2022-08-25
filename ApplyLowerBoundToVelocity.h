@@ -1,4 +1,4 @@
-inline void ApplyLowerBoundToVelocity(double *vnewc, const double *eosvmin){
-    if (vnewc[0] < (*eosvmin))
-        vnewc[0] = (*eosvmin) ;
+inline void ApplyLowerBoundToVelocity(double *vnewc){
+    if (vnewc[0] < (m_eosvmin))
+        vnewc[0] = (m_eosvmin) ;
 }

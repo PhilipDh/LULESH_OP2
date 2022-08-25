@@ -5,21 +5,16 @@ inline void CalcVeloForNodes(
 ){
     double xdtmp, ydtmp, zdtmp ;
 
-//   xdtmp = domain.xd(i) + domain.xdd(i) * dt ;
     xdtmp = xd[0] + xdd[0] * (*dt) ;
     if( fabs(xdtmp) < m_u_cut ) xdtmp = double(0.0);
-//   domain.xd(i) = xdtmp ;
     xd[0] = xdtmp ;
 
-//   ydtmp = domain.yd(i) + domain.ydd(i) * dt ;
     ydtmp = yd[0] + ydd[0] * (*dt) ;
     if( fabs(ydtmp) < m_u_cut ) ydtmp = double(0.0);
-//   domain.yd(i) = ydtmp ;
     yd[0] = ydtmp ;
 
-//   zdtmp = domain.zd(i) + domain.zdd(i) * dt ;
     zdtmp = zd[0] + zdd[0] * (*dt) ;
     if( fabs(zdtmp) < m_u_cut ) zdtmp = double(0.0);
-//   domain.zd(i) = zdtmp ;
+
     zd[0] = zdtmp ;
 }

@@ -88,8 +88,9 @@
 //                        y[0], y[1], y[2], y[3], y[4], y[5], y[6], y[7],
 //                        z[0], z[1], z[2], z[3], z[4], z[5], z[6], z[7]);
 // }
+// #include "const.h"
 
-// static inline
+// static inline //OP_FUN_PREFIX
 // double AreaFacet( const double x0, const double x1,
 //                  const double x2, const double x3,
 //                  const double y0, const double y1,
@@ -243,76 +244,76 @@
 //   *volume = double(8.) * ( fjxet * cjxet + fjyet * cjyet + fjzet * cjzet);
 // }
 
-static inline
-void CalcElemVelocityGradientt( const double* const xvel,
-                                const double* const yvel,
-                                const double* const zvel,
-                                const double b[][8],
-                                const double detJ,
-                                double* const d )
-{
-  const double inv_detJ = double(1.0) / detJ ;
-  double dyddx, dxddy, dzddx, dxddz, dzddy, dyddz;
-  const double* const pfx = b[0];
-  const double* const pfy = b[1];
-  const double* const pfz = b[2];
+// static inline
+// void CalcElemVelocityGradientt( const double* const xvel,
+//                                 const double* const yvel,
+//                                 const double* const zvel,
+//                                 const double b[][8],
+//                                 const double detJ,
+//                                 double* const d )
+// {
+//   const double inv_detJ = double(1.0) / detJ ;
+//   double dyddx, dxddy, dzddx, dxddz, dzddy, dyddz;
+//   const double* const pfx = b[0];
+//   const double* const pfy = b[1];
+//   const double* const pfz = b[2];
 
-  d[0] = inv_detJ * ( pfx[0] * (xvel[0]-xvel[6])
-                     + pfx[1] * (xvel[1]-xvel[7])
-                     + pfx[2] * (xvel[2]-xvel[4])
-                     + pfx[3] * (xvel[3]-xvel[5]) );
+//   d[0] = inv_detJ * ( pfx[0] * (xvel[0]-xvel[6])
+//                      + pfx[1] * (xvel[1]-xvel[7])
+//                      + pfx[2] * (xvel[2]-xvel[4])
+//                      + pfx[3] * (xvel[3]-xvel[5]) );
 
-  d[1] = inv_detJ * ( pfy[0] * (yvel[0]-yvel[6])
-                     + pfy[1] * (yvel[1]-yvel[7])
-                     + pfy[2] * (yvel[2]-yvel[4])
-                     + pfy[3] * (yvel[3]-yvel[5]) );
+//   d[1] = inv_detJ * ( pfy[0] * (yvel[0]-yvel[6])
+//                      + pfy[1] * (yvel[1]-yvel[7])
+//                      + pfy[2] * (yvel[2]-yvel[4])
+//                      + pfy[3] * (yvel[3]-yvel[5]) );
 
-  d[2] = inv_detJ * ( pfz[0] * (zvel[0]-zvel[6])
-                     + pfz[1] * (zvel[1]-zvel[7])
-                     + pfz[2] * (zvel[2]-zvel[4])
-                     + pfz[3] * (zvel[3]-zvel[5]) );
+//   d[2] = inv_detJ * ( pfz[0] * (zvel[0]-zvel[6])
+//                      + pfz[1] * (zvel[1]-zvel[7])
+//                      + pfz[2] * (zvel[2]-zvel[4])
+//                      + pfz[3] * (zvel[3]-zvel[5]) );
 
-  dyddx  = inv_detJ * ( pfx[0] * (yvel[0]-yvel[6])
-                      + pfx[1] * (yvel[1]-yvel[7])
-                      + pfx[2] * (yvel[2]-yvel[4])
-                      + pfx[3] * (yvel[3]-yvel[5]) );
+//   dyddx  = inv_detJ * ( pfx[0] * (yvel[0]-yvel[6])
+//                       + pfx[1] * (yvel[1]-yvel[7])
+//                       + pfx[2] * (yvel[2]-yvel[4])
+//                       + pfx[3] * (yvel[3]-yvel[5]) );
 
-  dxddy  = inv_detJ * ( pfy[0] * (xvel[0]-xvel[6])
-                      + pfy[1] * (xvel[1]-xvel[7])
-                      + pfy[2] * (xvel[2]-xvel[4])
-                      + pfy[3] * (xvel[3]-xvel[5]) );
+//   dxddy  = inv_detJ * ( pfy[0] * (xvel[0]-xvel[6])
+//                       + pfy[1] * (xvel[1]-xvel[7])
+//                       + pfy[2] * (xvel[2]-xvel[4])
+//                       + pfy[3] * (xvel[3]-xvel[5]) );
 
-  dzddx  = inv_detJ * ( pfx[0] * (zvel[0]-zvel[6])
-                      + pfx[1] * (zvel[1]-zvel[7])
-                      + pfx[2] * (zvel[2]-zvel[4])
-                      + pfx[3] * (zvel[3]-zvel[5]) );
+//   dzddx  = inv_detJ * ( pfx[0] * (zvel[0]-zvel[6])
+//                       + pfx[1] * (zvel[1]-zvel[7])
+//                       + pfx[2] * (zvel[2]-zvel[4])
+//                       + pfx[3] * (zvel[3]-zvel[5]) );
 
-  dxddz  = inv_detJ * ( pfz[0] * (xvel[0]-xvel[6])
-                      + pfz[1] * (xvel[1]-xvel[7])
-                      + pfz[2] * (xvel[2]-xvel[4])
-                      + pfz[3] * (xvel[3]-xvel[5]) );
+//   dxddz  = inv_detJ * ( pfz[0] * (xvel[0]-xvel[6])
+//                       + pfz[1] * (xvel[1]-xvel[7])
+//                       + pfz[2] * (xvel[2]-xvel[4])
+//                       + pfz[3] * (xvel[3]-xvel[5]) );
 
-  dzddy  = inv_detJ * ( pfy[0] * (zvel[0]-zvel[6])
-                      + pfy[1] * (zvel[1]-zvel[7])
-                      + pfy[2] * (zvel[2]-zvel[4])
-                      + pfy[3] * (zvel[3]-zvel[5]) );
+//   dzddy  = inv_detJ * ( pfy[0] * (zvel[0]-zvel[6])
+//                       + pfy[1] * (zvel[1]-zvel[7])
+//                       + pfy[2] * (zvel[2]-zvel[4])
+//                       + pfy[3] * (zvel[3]-zvel[5]) );
 
-  dyddz  = inv_detJ * ( pfz[0] * (yvel[0]-yvel[6])
-                      + pfz[1] * (yvel[1]-yvel[7])
-                      + pfz[2] * (yvel[2]-yvel[4])
-                      + pfz[3] * (yvel[3]-yvel[5]) );
-  d[5]  = double( .5) * ( dxddy + dyddx );
-  d[4]  = double( .5) * ( dxddz + dzddx );
-  d[3]  = double( .5) * ( dzddy + dyddz );
-}
+//   dyddz  = inv_detJ * ( pfz[0] * (yvel[0]-yvel[6])
+//                       + pfz[1] * (yvel[1]-yvel[7])
+//                       + pfz[2] * (yvel[2]-yvel[4])
+//                       + pfz[3] * (yvel[3]-yvel[5]) );
+//   d[5]  = double( .5) * ( dxddy + dyddx );
+//   d[4]  = double( .5) * ( dxddz + dzddx );
+//   d[3]  = double( .5) * ( dzddy + dyddz );
+// }
 
 inline void CalcKinematicsForElem(
-                                const double *p_x1, const double *p_x2, const double *p_x3, const double *p_x4, const double *p_x5, const double *p_x6, const double *p_x7, const double *p_x8,
-                                const double *p_y1, const double *p_y2, const double *p_y3, const double *p_y4, const double *p_y5, const double *p_y6, const double *p_y7, const double *p_y8,
-                                const double *p_z1, const double *p_z2, const double *p_z3, const double *p_z4, const double *p_z5, const double *p_z6, const double *p_z7, const double *p_z8,
-                                const double *p_xd1, const double *p_xd2, const double *p_xd3, const double *p_xd4, const double *p_xd5, const double *p_xd6, const double *p_xd7, const double *p_xd8,
-                                const double *p_yd1, const double *p_yd2, const double *p_yd3, const double *p_yd4, const double *p_yd5, const double *p_yd6, const double *p_yd7, const double *p_yd8,
-                                const double *p_zd1, const double *p_zd2, const double *p_zd3, const double *p_zd4, const double *p_zd5, const double *p_zd6, const double *p_zd7, const double *p_zd8,
+                                const double *p_x0, const double *p_x1, const double *p_x2, const double *p_x3, const double *p_x4, const double *p_x5, const double *p_x6, const double *p_x7,
+                                const double *p_y0, const double *p_y1, const double *p_y2, const double *p_y3, const double *p_y4, const double *p_y5, const double *p_y6, const double *p_y7,
+                                const double *p_z0, const double *p_z1, const double *p_z2, const double *p_z3, const double *p_z4, const double *p_z5, const double *p_z6, const double *p_z7,
+                                const double *p_xd0, const double *p_xd1, const double *p_xd2, const double *p_xd3, const double *p_xd4, const double *p_xd5, const double *p_xd6, const double *p_xd7,
+                                const double *p_yd0, const double *p_yd1, const double *p_yd2, const double *p_yd3, const double *p_yd4, const double *p_yd5, const double *p_yd6, const double *p_yd7,
+                                const double *p_zd0, const double *p_zd1, const double *p_zd2, const double *p_zd3, const double *p_zd4, const double *p_zd5, const double *p_zd6, const double *p_zd7,
                                 double *dxx, double *dyy, double *dzz,
                                 double *vnew,
                                 const double *volo,
@@ -328,91 +329,87 @@ inline void CalcKinematicsForElem(
    double x_local[8] ;
    double y_local[8] ;
    double z_local[8] ;
-   double xd_local[8] ;
-   double yd_local[8] ;
-   double zd_local[8] ;
    double detJ = double(0.0) ;
 
    double volume ;
    double relativeVolume ;
 
-   x_local[0] = p_x1[0];
-   x_local[1] = p_x2[0];
-   x_local[2] = p_x3[0];
-   x_local[3] = p_x4[0];
-   x_local[4] = p_x5[0];
-   x_local[5] = p_x6[0];
-   x_local[6] = p_x7[0];
-   x_local[7] = p_x8[0];
+   x_local[0] = p_x0[0];
+   x_local[1] = p_x1[0];
+   x_local[2] = p_x2[0];
+   x_local[3] = p_x3[0];
+   x_local[4] = p_x4[0];
+   x_local[5] = p_x5[0];
+   x_local[6] = p_x6[0];
+   x_local[7] = p_x7[0];
 
-   y_local[0] = p_y1[0];
-   y_local[1] = p_y2[0];
-   y_local[2] = p_y3[0];
-   y_local[3] = p_y4[0];
-   y_local[4] = p_y5[0];
-   y_local[5] = p_y6[0];
-   y_local[6] = p_y7[0];
-   y_local[7] = p_y8[0];
+   y_local[0] = p_y0[0];
+   y_local[1] = p_y1[0];
+   y_local[2] = p_y2[0];
+   y_local[3] = p_y3[0];
+   y_local[4] = p_y4[0];
+   y_local[5] = p_y5[0];
+   y_local[6] = p_y6[0];
+   y_local[7] = p_y7[0];
 
-   z_local[0] = p_z1[0];
-   z_local[1] = p_z2[0];
-   z_local[2] = p_z3[0];
-   z_local[3] = p_z4[0];
-   z_local[4] = p_z5[0];
-   z_local[5] = p_z6[0];
-   z_local[6] = p_z7[0];
-   z_local[7] = p_z8[0];
+   z_local[0] = p_z0[0];
+   z_local[1] = p_z1[0];
+   z_local[2] = p_z2[0];
+   z_local[3] = p_z3[0];
+   z_local[4] = p_z4[0];
+   z_local[5] = p_z5[0];
+   z_local[6] = p_z6[0];
+   z_local[7] = p_z7[0];
 
    // Calc Elem Volume
-   double twelveth = double(1.0)/double(12.0);
 
-   double dx61 = x_local[6] - x_local[1];
-   double dy61 = y_local[6] - y_local[1];
-   double dz61 = z_local[6] - z_local[1];
+   double dx61 = p_x6[0] - p_x1[0];
+   double dy61 = p_y6[0] - p_y1[0];
+   double dz61 = p_z6[0] - p_z1[0];
 
-   double dx70 = x_local[7] - x_local[0];
-   double dy70 = y_local[7] - y_local[0];
-   double dz70 = z_local[7] - z_local[0];
+   double dx70 = p_x7[0] - p_x0[0];
+   double dy70 = p_y7[0] - p_y0[0];
+   double dz70 = p_z7[0] - p_z0[0];
 
-   double dx63 = x_local[6] - x_local[3];
-   double dy63 = y_local[6] - y_local[3];
-   double dz63 = z_local[6] - z_local[3];
+   double dx63 = p_x6[0] - p_x3[0];
+   double dy63 = p_y6[0] - p_y3[0];
+   double dz63 = p_z6[0] - p_z3[0];
 
-   double dx20 = x_local[2] - x_local[0];
-   double dy20 = y_local[2] - y_local[0];
-   double dz20 = z_local[2] - z_local[0];
+   double dx20 = p_x2[0] - p_x0[0];
+   double dy20 = p_y2[0] - p_y0[0];
+   double dz20 = p_z2[0] - p_z0[0];
 
-   double dx50 = x_local[5] - x_local[0];
-   double dy50 = y_local[5] - y_local[0];
-   double dz50 = z_local[5] - z_local[0];
+   double dx50 = p_x5[0] - p_x0[0];
+   double dy50 = p_y5[0] - p_y0[0];
+   double dz50 = p_z5[0] - p_z0[0];
 
-   double dx64 = x_local[6] - x_local[4];
-   double dy64 = y_local[6] - y_local[4];
-   double dz64 = z_local[6] - z_local[4];
+   double dx64 = p_x6[0] - p_x4[0];
+   double dy64 = p_y6[0] - p_y4[0];
+   double dz64 = p_z6[0] - p_z4[0];
 
-   double dx31 = x_local[3] - x_local[1];
-   double dy31 = y_local[3] - y_local[1];
-   double dz31 = z_local[3] - z_local[1];
+   double dx31 = p_x3[0] - p_x1[0];
+   double dy31 = p_y3[0] - p_y1[0];
+   double dz31 = p_z3[0] - p_z1[0];
 
-   double dx72 = x_local[7] - x_local[2];
-   double dy72 = y_local[7] - y_local[2];
-   double dz72 = z_local[7] - z_local[2];
+   double dx72 = p_x7[0] - p_x2[0];
+   double dy72 = p_y7[0] - p_y2[0];
+   double dz72 = p_z7[0] - p_z2[0];
 
-   double dx43 = x_local[4] - x_local[3];
-   double dy43 = y_local[4] - y_local[3];
-   double dz43 = z_local[4] - z_local[3];
+   double dx43 = p_x4[0] - p_x3[0];
+   double dy43 = p_y4[0] - p_y3[0];
+   double dz43 = p_z4[0] - p_z3[0];
 
-   double dx57 = x_local[5] - x_local[7];
-   double dy57 = y_local[5] - y_local[7];
-   double dz57 = z_local[5] - z_local[7];
+   double dx57 = p_x5[0] - p_x7[0];
+   double dy57 = p_y5[0] - p_y7[0];
+   double dz57 = p_z5[0] - p_z7[0];
 
-   double dx14 = x_local[1] - x_local[4];
-   double dy14 = y_local[1] - y_local[4];
-   double dz14 = z_local[1] - z_local[4];
+   double dx14 = p_x1[0] - p_x4[0];
+   double dy14 = p_y1[0] - p_y4[0];
+   double dz14 = p_z1[0] - p_z4[0];
 
-   double dx25 = x_local[2] - x_local[5];
-   double dy25 = y_local[2] - y_local[5];
-   double dz25 = z_local[2] - z_local[5];
+   double dx25 = p_x2[0] - p_x5[0];
+   double dy25 = p_y2[0] - p_y5[0];
+   double dz25 = p_z2[0] - p_z5[0];
 
    #define TRIPLE_PRODUCT(x1, y1, z1, x2, y2, z2, x3, y3, z3) \
       ((x1)*((y2)*(z3) - (z2)*(y3)) + (x2)*((z1)*(y3) - (y1)*(z3)) + (x3)*((y1)*(z2) - (z1)*(y2)))
@@ -429,8 +426,7 @@ inline void CalcKinematicsForElem(
          dz14 + dz25, dz61, dz50);
 
       #undef TRIPLE_PRODUCT
-
-   temp_volume *= twelveth;
+   temp_volume *= m_twelfth;
 
    volume = temp_volume;
    // End Calc Elem Volume
@@ -554,59 +550,57 @@ inline void CalcKinematicsForElem(
    //End Function
    arealg[0] = charLength;
 
-   xd_local[0] = p_xd1[0];
-   xd_local[1] = p_xd2[0];
-   xd_local[2] = p_xd3[0];
-   xd_local[3] = p_xd4[0];
-   xd_local[4] = p_xd5[0];
-   xd_local[5] = p_xd6[0];
-   xd_local[6] = p_xd7[0];
-   xd_local[7] = p_xd8[0];
-
-   yd_local[0] = p_yd1[0];
-   yd_local[1] = p_yd2[0];
-   yd_local[2] = p_yd3[0];
-   yd_local[3] = p_yd4[0];
-   yd_local[4] = p_yd5[0];
-   yd_local[5] = p_yd6[0];
-   yd_local[6] = p_yd7[0];
-   yd_local[7] = p_yd8[0];
-
-   zd_local[0] = p_zd1[0];
-   zd_local[1] = p_zd2[0];
-   zd_local[2] = p_zd3[0];
-   zd_local[3] = p_zd4[0];
-   zd_local[4] = p_zd5[0];
-   zd_local[5] = p_zd6[0];
-   zd_local[6] = p_zd7[0];
-   zd_local[7] = p_zd8[0];
-
    double dt2 = double(0.5) * (*deltaTime);
 
-   for ( int j=0 ; j<8 ; ++j )
-   {
-      x_local[j] -= dt2 * xd_local[j];
-      y_local[j] -= dt2 * yd_local[j];
-      z_local[j] -= dt2 * zd_local[j];
-   }
+   x_local[0] -= dt2 * p_xd0[0];
+   y_local[0] -= dt2 * p_yd0[0];
+   z_local[0] -= dt2 * p_zd0[0];
+
+   x_local[1] -= dt2 * p_xd1[0];
+   y_local[1] -= dt2 * p_yd1[0];
+   z_local[1] -= dt2 * p_zd1[0];
+
+   x_local[2] -= dt2 * p_xd2[0];
+   y_local[2] -= dt2 * p_yd2[0];
+   z_local[2] -= dt2 * p_zd2[0];
+
+   x_local[3] -= dt2 * p_xd3[0];
+   y_local[3] -= dt2 * p_yd3[0];
+   z_local[3] -= dt2 * p_zd3[0];
+
+   x_local[4] -= dt2 * p_xd4[0];
+   y_local[4] -= dt2 * p_yd4[0];
+   z_local[4] -= dt2 * p_zd4[0];
+
+   x_local[5] -= dt2 * p_xd5[0];
+   y_local[5] -= dt2 * p_yd5[0];
+   z_local[5] -= dt2 * p_zd5[0];
+
+   x_local[6] -= dt2 * p_xd6[0];
+   y_local[6] -= dt2 * p_yd6[0];
+   z_local[6] -= dt2 * p_zd6[0];
+
+   x_local[7] -= dt2 * p_xd7[0];
+   y_local[7] -= dt2 * p_yd7[0];
+   z_local[7] -= dt2 * p_zd7[0];
 
    // CalcElemShapeFunctionDerivativest( x_local, y_local, z_local,
    //                                  B, &detJ );
    // Start CalcElemShapeFunctionDerivativest function
-     const double x0 = x_local[0] ;   const double x1 = x_local[1] ;
-  const double x2 = x_local[2] ;   const double x3 = x_local[3] ;
-  const double x4 = x_local[4] ;   const double x5 = x_local[5] ;
-  const double x6 = x_local[6] ;   const double x7 = x_local[7] ;
+//      const double x0 = x_local[0] ;   const double x1 = x_local[1] ;
+//   const double x2 = x_local[2] ;   const double x3 = x_local[3] ;
+//   const double x4 = x_local[4] ;   const double x5 = x_local[5] ;
+//   const double x6 = x_local[6] ;   const double x7 = x_local[7] ;
 
-  const double y0 = y_local[0] ;   const double y1 = y_local[1] ;
-  const double y2 = y_local[2] ;   const double y3 = y_local[3] ;
-  const double y4 = y_local[4] ;   const double y5 = y_local[5] ;
-  const double y6 = y_local[6] ;   const double y7 = y_local[7] ;
+//   const double y0 = y_local[0] ;   const double y1 = y_local[1] ;
+//   const double y2 = y_local[2] ;   const double y3 = y_local[3] ;
+//   const double y4 = y_local[4] ;   const double y5 = y_local[5] ;
+//   const double y6 = y_local[6] ;   const double y7 = y_local[7] ;
 
-  const double z0 = z_local[0] ;   const double z1 = z_local[1] ;
-  const double z2 = z_local[2] ;   const double z3 = z_local[3] ;
-  const double z4 = z_local[4] ;   const double z5 = z_local[5] ;
-  const double z6 = z_local[6] ;   const double z7 = z_local[7] ;
+//   const double z0 = z_local[0] ;   const double z1 = z_local[1] ;
+//   const double z2 = z_local[2] ;   const double z3 = z_local[3] ;
+//   const double z4 = z_local[4] ;   const double z5 = z_local[5] ;
+//   const double z6 = z_local[6] ;   const double z7 = z_local[7] ;
 
   double fjxxi, fjxet, fjxze;
   double fjyxi, fjyet, fjyze;
@@ -615,17 +609,18 @@ inline void CalcKinematicsForElem(
   double cjyxi, cjyet, cjyze;
   double cjzxi, cjzet, cjzze;
 
-  fjxxi = double(.125) * ( (x6-x0) + (x5-x3) - (x7-x1) - (x4-x2) );
-  fjxet = double(.125) * ( (x6-x0) - (x5-x3) + (x7-x1) - (x4-x2) );
-  fjxze = double(.125) * ( (x6-x0) + (x5-x3) + (x7-x1) + (x4-x2) );
+   fjxxi = double(.125) * ( (x_local[6]-x_local[0]) + (x_local[5]-x_local[3]) - (x_local[7]-x_local[1]) - (x_local[4]-x_local[2]) );
+   fjxet = double(.125) * ( (x_local[6]-x_local[0]) - (x_local[5]-x_local[3]) + (x_local[7]-x_local[1]) - (x_local[4]-x_local[2]) );
+   fjxze = double(.125) * ( (x_local[6]-x_local[0]) + (x_local[5]-x_local[3]) + (x_local[7]-x_local[1]) + (x_local[4]-x_local[2]) );
 
-  fjyxi = double(.125) * ( (y6-y0) + (y5-y3) - (y7-y1) - (y4-y2) );
-  fjyet = double(.125) * ( (y6-y0) - (y5-y3) + (y7-y1) - (y4-y2) );
-  fjyze = double(.125) * ( (y6-y0) + (y5-y3) + (y7-y1) + (y4-y2) );
+   fjyxi = double(.125) * ( (y_local[6]-y_local[0]) + (y_local[5]-y_local[3]) - (y_local[7]-y_local[1]) - (y_local[4]-y_local[2]) );
+   fjyet = double(.125) * ( (y_local[6]-y_local[0]) - (y_local[5]-y_local[3]) + (y_local[7]-y_local[1]) - (y_local[4]-y_local[2]) );
+   fjyze = double(.125) * ( (y_local[6]-y_local[0]) + (y_local[5]-y_local[3]) + (y_local[7]-y_local[1]) + (y_local[4]-y_local[2]) );
 
-  fjzxi = double(.125) * ( (z6-z0) + (z5-z3) - (z7-z1) - (z4-z2) );
-  fjzet = double(.125) * ( (z6-z0) - (z5-z3) + (z7-z1) - (z4-z2) );
-  fjzze = double(.125) * ( (z6-z0) + (z5-z3) + (z7-z1) + (z4-z2) );
+   fjzxi = double(.125) * ( (z_local[6]-z_local[0]) + (z_local[5]-z_local[3]) - (z_local[7]-z_local[1]) - (z_local[4]-z_local[2]) );
+   fjzet = double(.125) * ( (z_local[6]-z_local[0]) - (z_local[5]-z_local[3]) + (z_local[7]-z_local[1]) - (z_local[4]-z_local[2]) );
+   fjzze = double(.125) * ( (z_local[6]-z_local[0]) + (z_local[5]-z_local[3]) + (z_local[7]-z_local[1]) + (z_local[4]-z_local[2]) );
+
 
   /* compute cofactors */
   cjxxi =    (fjyet * fjzze) - (fjzet * fjyze);
@@ -683,50 +678,50 @@ inline void CalcKinematicsForElem(
    const double* const pfy = B[1];
    const double* const pfz = B[2];
 
-   D[0] = inv_detJ * ( pfx[0] * (xd_local[0]-xd_local[6])
-                        + pfx[1] * (xd_local[1]-xd_local[7])
-                        + pfx[2] * (xd_local[2]-xd_local[4])
-                        + pfx[3] * (xd_local[3]-xd_local[5]) );
+   D[0] = inv_detJ * ( pfx[0] * (p_xd0[0]-p_xd6[0])
+                        + pfx[1] * (p_xd1[0]-p_xd7[0])
+                        + pfx[2] * (p_xd2[0]-p_xd4[0])
+                        + pfx[3] * (p_xd3[0]-p_xd5[0]) );
 
-   D[1] = inv_detJ * ( pfy[0] * (yd_local[0]-yd_local[6])
-                        + pfy[1] * (yd_local[1]-yd_local[7])
-                        + pfy[2] * (yd_local[2]-yd_local[4])
-                        + pfy[3] * (yd_local[3]-yd_local[5]) );
+   D[1] = inv_detJ * ( pfy[0] * (p_yd0[0]-p_yd6[0])
+                        + pfy[1] * (p_yd1[0]-p_yd7[0])
+                        + pfy[2] * (p_yd2[0]-p_yd4[0])
+                        + pfy[3] * (p_yd3[0]-p_yd5[0]) );
 
-   D[2] = inv_detJ * ( pfz[0] * (zd_local[0]-zd_local[6])
-                        + pfz[1] * (zd_local[1]-zd_local[7])
-                        + pfz[2] * (zd_local[2]-zd_local[4])
-                        + pfz[3] * (zd_local[3]-zd_local[5]) );
+   D[2] = inv_detJ * ( pfz[0] * (p_zd0[0]-p_zd6[0])
+                        + pfz[1] * (p_zd1[0]-p_zd7[0])
+                        + pfz[2] * (p_zd2[0]-p_zd4[0])
+                        + pfz[3] * (p_zd3[0]-p_zd5[0]) );
 
-   dyddx  = inv_detJ * ( pfx[0] * (yd_local[0]-yd_local[6])
-                        + pfx[1] * (yd_local[1]-yd_local[7])
-                        + pfx[2] * (yd_local[2]-yd_local[4])
-                        + pfx[3] * (yd_local[3]-yd_local[5]) );
+   dyddx  = inv_detJ * ( pfx[0] * (p_yd0[0]-p_yd6[0])
+                        + pfx[1] * (p_yd1[0]-p_yd7[0])
+                        + pfx[2] * (p_yd2[0]-p_yd4[0])
+                        + pfx[3] * (p_yd3[0]-p_yd5[0]) );
 
-   dxddy  = inv_detJ * ( pfy[0] * (xd_local[0]-xd_local[6])
-                        + pfy[1] * (xd_local[1]-xd_local[7])
-                        + pfy[2] * (xd_local[2]-xd_local[4])
-                        + pfy[3] * (xd_local[3]-xd_local[5]) );
+   dxddy  = inv_detJ * ( pfy[0] * (p_xd0[0]-p_xd6[0])
+                        + pfy[1] * (p_xd1[0]-p_xd7[0])
+                        + pfy[2] * (p_xd2[0]-p_xd4[0])
+                        + pfy[3] * (p_xd3[0]-p_xd5[0]) );
 
-   dzddx  = inv_detJ * ( pfx[0] * (zd_local[0]-zd_local[6])
-                        + pfx[1] * (zd_local[1]-zd_local[7])
-                        + pfx[2] * (zd_local[2]-zd_local[4])
-                        + pfx[3] * (zd_local[3]-zd_local[5]) );
+   dzddx  = inv_detJ * ( pfx[0] * (p_zd0[0]-p_zd6[0])
+                        + pfx[1] * (p_zd1[0]-p_zd7[0])
+                        + pfx[2] * (p_zd2[0]-p_zd4[0])
+                        + pfx[3] * (p_zd3[0]-p_zd5[0]) );
 
-   dxddz  = inv_detJ * ( pfz[0] * (xd_local[0]-xd_local[6])
-                        + pfz[1] * (xd_local[1]-xd_local[7])
-                        + pfz[2] * (xd_local[2]-xd_local[4])
-                        + pfz[3] * (xd_local[3]-xd_local[5]) );
+   dxddz  = inv_detJ * ( pfz[0] * (p_xd0[0]-p_xd6[0])
+                        + pfz[1] * (p_xd1[0]-p_xd7[0])
+                        + pfz[2] * (p_xd2[0]-p_xd4[0])
+                        + pfz[3] * (p_xd3[0]-p_xd5[0]) );
 
-   dzddy  = inv_detJ * ( pfy[0] * (zd_local[0]-zd_local[6])
-                        + pfy[1] * (zd_local[1]-zd_local[7])
-                        + pfy[2] * (zd_local[2]-zd_local[4])
-                        + pfy[3] * (zd_local[3]-zd_local[5]) );
+   dzddy  = inv_detJ * ( pfy[0] * (p_zd0[0]-p_zd6[0])
+                        + pfy[1] * (p_zd1[0]-p_zd7[0])
+                        + pfy[2] * (p_zd2[0]-p_zd4[0])
+                        + pfy[3] * (p_zd3[0]-p_zd5[0]) );
 
-   dyddz  = inv_detJ * ( pfz[0] * (yd_local[0]-yd_local[6])
-                        + pfz[1] * (yd_local[1]-yd_local[7])
-                        + pfz[2] * (yd_local[2]-yd_local[4])
-                        + pfz[3] * (yd_local[3]-yd_local[5]) );
+   dyddz  = inv_detJ * ( pfz[0] * (p_yd0[0]-p_yd6[0])
+                        + pfz[1] * (p_yd1[0]-p_yd7[0])
+                        + pfz[2] * (p_yd2[0]-p_yd4[0])
+                        + pfz[3] * (p_yd3[0]-p_yd5[0]) );
    D[5]  = double( .5) * ( dxddy + dyddx );
    D[4]  = double( .5) * ( dxddz + dzddx );
    D[3]  = double( .5) * ( dzddy + dyddz );
