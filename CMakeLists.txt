@@ -69,12 +69,12 @@ if(WITH_OP2)
     find_path(
       OP2_INCLUDE_DIR
       NAMES op_seq.h
-      HINTS /dcs/pg21/u2148990/Documents/diss/OP2-Common/op2/include
+      HINTS $ENV{OP2_INSTALL_PATH}/op2/include
       )
     find_library(
       OP2_LIBRARY
       NAMES op2_seq
-      HINTS /dcs/pg21/u2148990/Documents/diss/OP2-Common/op2/lib/)
+      HINTS $ENV{OP2_INSTALL_PATH}/op2/lib/)
     include(FindPackageHandleStandardArgs)
     find_package_handle_standard_args(OP2 DEFAULT_MSG
       OP2_LIBRARY
@@ -83,12 +83,12 @@ if(WITH_OP2)
     find_path(
       OP2_INCLUDE_DIR
       NAMES op_lib_mpi.h
-      HINTS /dcs/pg21/u2148990/Documents/diss/OP2-Common/op2/include
+      HINTS $ENV{OP2_INSTALL_PATH}/op2/include
       )
     find_library(
       OP2_LIBRARY
       NAMES op2_mpi
-      HINTS /dcs/pg21/u2148990/Documents/diss/OP2-Common/op2/lib/)
+      HINTS $ENV{OP2_INSTALL_PATH}/op2/lib/)
     
     include(FindPackageHandleStandardArgs)
     find_package_handle_standard_args(OP2 DEFAULT_MSG

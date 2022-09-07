@@ -4,6 +4,11 @@ This project has been built as part of Philip Dahmens dissertation for a Master 
 
 The original source code can be found under https://github.com/LLNL/LULESH and more information on https://asc.llnl.gov/codes/proxy-apps/lulesh
 
+### Before compiling
+
+This repository requires a working version of the OP2 repository found under https://github.com/OP-DSL/OP2-Common  
+Both the makefile and cmake files require the environment variable OP2_INSTALL_PATH to be set to the root of the OP2 directory.
+
 ### Structure
 
 At the moment the structure of this repository is still a work in progress and will be changed in future versions.
