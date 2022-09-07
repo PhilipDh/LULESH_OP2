@@ -14,6 +14,7 @@ inline void IntegrateStressForElemsLoop(
     double fy_local[8] ;
     double fz_local[8] ;
 
+    //CalcElemShapeFunctionDerivatives
     double fjxxi, fjxet, fjxze;
     double fjyxi, fjyet, fjyze;
     double fjzxi, fjzet, fjzze;

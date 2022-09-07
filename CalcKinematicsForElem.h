@@ -244,7 +244,7 @@
 //   *volume = double(8.) * ( fjxet * cjxet + fjyet * cjyet + fjzet * cjzet);
 // }
 
-// static inline
+// static inline 
 // void CalcElemVelocityGradientt( const double* const xvel,
 //                                 const double* const yvel,
 //                                 const double* const zvel,

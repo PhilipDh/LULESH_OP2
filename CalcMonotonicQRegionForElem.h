@@ -1,34 +1,34 @@
 // Stuff needed for boundary conditions
 // 2 BCs on each of 6 hexahedral faces (12 bits)
-#define XI_M        0x00007
-#define XI_M_SYMM   0x00001
-#define XI_M_FREE   0x00002
-#define XI_M_COMM   0x00004
+// #define XI_M        0x00007
+// #define XI_M_SYMM   0x00001
+// #define XI_M_FREE   0x00002
+// #define XI_M_COMM   0x00004
 
-#define XI_P        0x00038
-#define XI_P_SYMM   0x00008
-#define XI_P_FREE   0x00010
-#define XI_P_COMM   0x00020
+// #define XI_P        0x00038
+// #define XI_P_SYMM   0x00008
+// #define XI_P_FREE   0x00010
+// #define XI_P_COMM   0x00020
 
-#define ETA_M       0x001c0
-#define ETA_M_SYMM  0x00040
-#define ETA_M_FREE  0x00080
-#define ETA_M_COMM  0x00100
+// #define ETA_M       0x001c0
+// #define ETA_M_SYMM  0x00040
+// #define ETA_M_FREE  0x00080
+// #define ETA_M_COMM  0x00100
 
-#define ETA_P       0x00e00
-#define ETA_P_SYMM  0x00200
-#define ETA_P_FREE  0x00400
-#define ETA_P_COMM  0x00800
+// #define ETA_P       0x00e00
+// #define ETA_P_SYMM  0x00200
+// #define ETA_P_FREE  0x00400
+// #define ETA_P_COMM  0x00800
 
-#define ZETA_M      0x07000
-#define ZETA_M_SYMM 0x01000
-#define ZETA_M_FREE 0x02000
-#define ZETA_M_COMM 0x04000
+// #define ZETA_M      0x07000
+// #define ZETA_M_SYMM 0x01000
+// #define ZETA_M_FREE 0x02000
+// #define ZETA_M_COMM 0x04000
 
-#define ZETA_P      0x38000
-#define ZETA_P_SYMM 0x08000
-#define ZETA_P_FREE 0x10000
-#define ZETA_P_COMM 0x20000
+// #define ZETA_P      0x38000
+// #define ZETA_P_SYMM 0x08000
+// #define ZETA_P_FREE 0x10000
+// #define ZETA_P_COMM 0x20000
 
 inline void CalcMonotonicQRegionForElem(
     const double *delv_xi, const double *delv_xi_lxim, const double *delv_xi_lxip,
@@ -47,7 +47,7 @@ inline void CalcMonotonicQRegionForElem(
 
     double norm = double(1.) / (delv_xi[0]+ m_ptiny ) ;
 
-    switch (bcMask & 0x00007) { //XI_M
+    switch (bcMask & XI_M) { //XI_M
     case 0x00004: /* needs comm data */ //XI_M_COMM
     case 0:         delvm = delv_xi_lxim[0]; break ;
     case 0x00001: delvm = delv_xi[0] ;       break ; //XI_M_SYMM

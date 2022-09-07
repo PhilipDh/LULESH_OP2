@@ -102,11 +102,11 @@ if(WITH_OP2)
 endif()
 
 set(LULESH_SOURCES
-  lulesh-comm.cc
-  lulesh-init.cc
-  lulesh-util.cc
-  lulesh-viz.cc
-  lulesh.cc)
+  # lulesh-comm.cc
+  # lulesh-init.cc
+  # lulesh-util.cc
+  # lulesh-viz.cc
+  lulesh.cpp)
 
 set(LULESH_EXEC lulesh2.0)
 

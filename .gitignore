@@ -15,3 +15,4 @@ openmp4/
 seq/
 build/
 *.d
+!README

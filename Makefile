@@ -1,6 +1,6 @@
 APP_NAME := lulesh
 
-APP_ENTRY := $(APP_NAME).cc
+APP_ENTRY := $(APP_NAME).cpp
 APP_ENTRY_MPI := $(APP_ENTRY)
 
 OP2_LIBS_WITH_HDF5 := true

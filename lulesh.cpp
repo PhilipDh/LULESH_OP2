@@ -965,6 +965,8 @@ void initialise(int colLoc,
       }
    }
 
+   op_printf("Voume at 0: %d, Nodal Mass: %d", volo[0], nodalMass[0]);
+
    // deposit initial energy
    // An energy of 3.948746e+7 is correct for a problem with
    // 45 zones along a side - we need to scale it
@@ -1573,54 +1575,6 @@ void TimeIncrement()
    ++m_cycle ;
 }
 
-/******************************************/
-
-static inline
-void CollectDomainNodesToElemNodes(Domain &domain,
-                                   const int* elemToNode,
-                                   double elemX[8],
-                                   double elemY[8],
-                                   double elemZ[8])
-{
-   int nd0i = elemToNode[0] ;
-   int nd1i = elemToNode[1] ;
-   int nd2i = elemToNode[2] ;
-   int nd3i = elemToNode[3] ;
-   int nd4i = elemToNode[4] ;
-   int nd5i = elemToNode[5] ;
-   int nd6i = elemToNode[6] ;
-   int nd7i = elemToNode[7] ;
-
-   elemX[0] = x[nd0i];
-   elemX[1] = x[nd1i];
-   elemX[2] = x[nd2i];
-   elemX[3] = x[nd3i];
-   elemX[4] = x[nd4i];
-   elemX[5] = x[nd5i];
-   elemX[6] = x[nd6i];
-   elemX[7] = x[nd7i];
-
-   elemY[0] = y[nd0i];
-   elemY[1] = y[nd1i];
-   elemY[2] = y[nd2i];
-   elemY[3] = y[nd3i];
-   elemY[4] = y[nd4i];
-   elemY[5] = y[nd5i];
-   elemY[6] = y[nd6i];
-   elemY[7] = y[nd7i];
-
-   elemZ[0] = z[nd0i];
-   elemZ[1] = z[nd1i];
-   elemZ[2] = z[nd2i];
-   elemZ[3] = z[nd3i];
-   elemZ[4] = z[nd4i];
-   elemZ[5] = z[nd5i];
-   elemZ[6] = z[nd6i];
-   elemZ[7] = z[nd7i];
-
-}
-
-/******************************************/
 
 static inline
 void InitStressTermsForElems()
@@ -1748,8 +1702,6 @@ void CalcVolumeForceForElems()
 
 static inline void CalcForceForNodes()
 {
-  int numNode = m_numNode ;
-
    // op_print("Force to zero");
    op_par_loop(setForceToZero, "setForceToZero", nodes,
                op_arg_dat(p_fx, -1, OP_ID, 1, "double", OP_WRITE),
@@ -2003,7 +1955,7 @@ void CalcMonotonicQGradientsForElems()
 /******************************************/
 
 static inline
-void CalcMonotonicQRegionForElems(double ptiny)
+void CalcMonotonicQRegionForElems()
 {
    op_par_loop(CalcMonotonicQRegionForElem, "CalcMonotonicQRegionForElem",elems,
                op_arg_dat(p_delv_xi, -1, OP_ID, 1, "double", OP_READ), op_arg_dat(p_delv_xi, 0, p_lxim, 1, "double", OP_READ),op_arg_dat(p_delv_xi, 0, p_lxip, 1, "double", OP_READ),
@@ -2026,11 +1978,6 @@ static inline
 void CalcMonotonicQForElems()
 {  
    //
-   // initialize parameters
-   // 
-   const double ptiny = double(1.e-36) ;
-
-   //
    // calculate the monotonic q for all regions
    //
    // The OP2 version does not support multiple regions yet
@@ -2041,7 +1988,7 @@ void CalcMonotonicQForElems()
       // if (m_regElemSize[r] > 0) {
       if(m_numElem > 0){
          // CalcMonotonicQRegionForElems(domain, r, ptiny) ;
-         CalcMonotonicQRegionForElems(ptiny) ;
+         CalcMonotonicQRegionForElems() ;
       }
       // }
 }
@@ -2074,12 +2021,7 @@ void CalcQForElems()
 /******************************************/
 
 static inline
-void CalcPressureForElemsHalfstep(double* p_new, double* bvc,
-                          double* pbvc, double* e_old,
-                          double* compression, double *vnewc,
-                          double pmin,
-                          double p_cut, double eosvmax,
-                          int length, int *regElemList)
+void CalcPressureForElemsHalfstep()
 {
    op_par_loop(CalcHalfStepBVC, "CalcHalfStepBVC", elems,
                op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_WRITE),
@@ -2096,12 +2038,7 @@ void CalcPressureForElemsHalfstep(double* p_new, double* bvc,
 }
 
 static inline
-void CalcPressureForElems(double* p_new, double* bvc,
-                          double* pbvc, double* e_old,
-                          double* compression, double *vnewc,
-                          double pmin,
-                          double p_cut, double eosvmax,
-                          int length, int *regElemList)
+void CalcPressureForElems()
 {
    op_par_loop(CalcBVC, "CalcBVC", elems,
                op_arg_dat(p_bvc, -1, OP_ID, 1, "double", OP_WRITE),
@@ -2143,8 +2080,7 @@ void CalcEnergyForElems(double* p_new, double* e_new, double* q_new,
                op_arg_dat(p_work, -1, OP_ID, 1, "double", OP_READ)
    );
 
-   CalcPressureForElemsHalfstep(pHalfStep, bvc, pbvc, e_new, compHalfStep, vnewc,
-                        pmin, p_cut, eosvmax, length, regElemList);
+   CalcPressureForElemsHalfstep();
 
    op_par_loop(CalcNewEStep2, "CalcNewEStep2", elems,
                op_arg_dat(p_compHalfStep, -1, OP_ID, 1, "double", OP_READ),
@@ -2165,8 +2101,7 @@ void CalcEnergyForElems(double* p_new, double* e_new, double* q_new,
                op_arg_dat(p_work, -1, OP_ID, 1, "double", OP_READ)
    );
 
-   CalcPressureForElems(p_new, bvc, pbvc, e_new, compression, vnewc,
-                        pmin, p_cut, eosvmax, length, regElemList);
+   CalcPressureForElems();
 
    op_par_loop(CalcNewEStep4, "CalcNewEStep4", elems,
                op_arg_dat(p_delvc, -1, OP_ID, 1, "double", OP_READ),
@@ -2183,8 +2118,7 @@ void CalcEnergyForElems(double* p_new, double* e_new, double* q_new,
                op_arg_dat(p_pHalfStep, -1, OP_ID, 1, "double", OP_READ)
    );
 
-   CalcPressureForElems(p_new, bvc, pbvc, e_new, compression, vnewc,
-                        pmin, p_cut, eosvmax, length, regElemList);
+   CalcPressureForElems();
 
    op_par_loop(CalcQNew, "CalcQNew", elems,
                op_arg_dat(p_delvc, -1, OP_ID, 1, "double", OP_READ),
@@ -2205,7 +2139,7 @@ void CalcEnergyForElems(double* p_new, double* e_new, double* q_new,
 /******************************************/
 
 static inline
-void CalcSoundSpeedForElems(double rho0)
+void CalcSoundSpeedForElems()
 {
    op_par_loop(CalcSoundSpeedForElem, "CalcSoundSpeedForElem", elems,
                op_arg_dat(p_pbvc, -1, OP_ID, 1, "double", OP_READ),
@@ -2297,7 +2231,7 @@ void EvalEOSForElems(double *vnewc,
                op_arg_dat(p_q, -1, OP_ID, 1, "double", OP_WRITE), op_arg_dat(p_q_new, -1, OP_ID, 1, "double", OP_READ)
    );
 
-   CalcSoundSpeedForElems(rho0) ;
+   CalcSoundSpeedForElems() ;
 
 
 }
@@ -2308,14 +2242,6 @@ static inline
 void ApplyMaterialPropertiesForElems()
 {
    if (m_numElem != 0) {
-    /* Expose all of the variables needed for material evaluation */
-    double eosvmin = m_eosvmin ;
-    double eosvmax = m_eosvmax ;
-
-      // double* tes = (double*) malloc(m_numElem*sizeof(double));
-      // op_fetch_data(p_vnew, tes);
-      // std::cout << tes[m_numElem-2] << " at " << myRank << "\n";
-      //print out vnew to hdf5
 
       // MPI_Barrier(MPI_COMM_WORLD);
       // op_print("CopyVelo");
@@ -2417,40 +2343,16 @@ void LagrangeElements()
 /******************************************/
 
 static inline
-void CalcCourantConstraintForElems(int length,
-                                   int *regElemlist,
-                                   double qqc, double& dtcourant)
+void CalcCourantConstraintForElems()
 {
-#if _OPENMP
-   const int threads = omp_get_max_threads();
-   int courant_elem_per_thread[threads];
-   double dtcourant_per_thread[threads];
-#else
-   int threads = 1;
-   int courant_elem_per_thread[1];
-   double  dtcourant_per_thread[1];
-#endif
 
-#pragma omp parallel firstprivate(length, m_qqc)
-   {
-      double   qqc2 = double(64.0) * m_qqc * m_qqc ;
-      double   dtcourant_tmp = dtcourant;
-      int  courant_elem  = -1 ;
-
-#if _OPENMP
-      int thread_num = omp_get_thread_num();
-#else
-      int thread_num = 0;
-#endif      
+  
    op_par_loop(CalcCourantConstraint, "CalcCourantConstraint", elems,
                op_arg_dat(p_ss, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_vdov, -1, OP_ID, 1, "double", OP_READ),
                op_arg_dat(p_arealg, -1, OP_ID, 1, "double", OP_READ),
                op_arg_gbl(&m_dtcourant, 1, "double", OP_MIN)
    );
-   }
-
-
    return ;
 
 }
@@ -2458,37 +2360,13 @@ void CalcCourantConstraintForElems(int length,
 /******************************************/
 
 static inline
-void CalcHydroConstraintForElems(int length,
-                                 int *regElemlist, double dvovmax, double& dthydro)
+void CalcHydroConstraintForElems()
 {
-#if _OPENMP
-   const int threads = omp_get_max_threads();
-   int hydro_elem_per_thread[threads];
-   double dthydro_per_thread[threads];
-#else
-   int threads = 1;
-   int hydro_elem_per_thread[1];
-   double  dthydro_per_thread[1];
-#endif
-
-#pragma omp parallel firstprivate(length, dvovmax)
-   {
-      double dthydro_tmp = dthydro ;
-      int hydro_elem = -1 ;
-
-#if _OPENMP
-      int thread_num = omp_get_thread_num();
-#else      
-      int thread_num = 0;
-#endif      
 
    op_par_loop(CalcHydroConstraint, "CalcHydroConstraint", elems,
                op_arg_dat(p_vdov, -1, OP_ID, 1, "double", OP_READ),
                op_arg_gbl(&m_dthydro, 1, "double", OP_MIN)            
    );
-   }
-
-
    return ;
 }
 
@@ -2498,24 +2376,16 @@ static inline
 void CalcTimeConstraintsForElems() {
 
    // Initialize conditions to a very large value
-   // domain.dtcourant() = 1.0e+20;
-   // domain.dthydro() = 1.0e+20;
    m_dtcourant = 1.0e+20;
    m_dthydro = 1.0e+20;
 
    // for (int r=0 ; r < domain.numReg() ; ++r) {
    for (int r=0 ; r < m_numReg ; ++r) {
       /* evaluate time constraint */
-      CalcCourantConstraintForElems(m_regElemSize[r],
-                                    m_regElemlist[r],
-                                    m_qqc,
-                                    m_dtcourant) ;
+      CalcCourantConstraintForElems() ;
 
       /* check hydro constraint */
-      CalcHydroConstraintForElems(m_regElemSize[r],
-                                  m_regElemlist[r],
-                                  m_dvovmax,
-                                  m_dthydro) ;
+      CalcHydroConstraintForElems() ;
    }
 }
 
@@ -2777,7 +2647,7 @@ void VerifyAndWriteFinalOutput(double elapsed_time,
 
    // Timing information
    std::cout.unsetf(std::ios_base::floatfield);
-   std::cout << std::setprecision(2);
+   std::cout << std::setprecision(4);
    std::cout << "\nElapsed time         = " << std::setw(10) << elapsed_time << " (s)\n";
    std::cout << std::setprecision(8);
    std::cout << "Grind time (us/z/c)  = "  << std::setw(10) << grindTime1 << " (per dom)  ("
@@ -2860,7 +2730,6 @@ int main(int argc, char *argv[])
    op_init(argc, argv, 1);
 
    int numRanks ;
-
 
 #if USE_MPI      
    MPI_Comm_size(MPI_COMM_WORLD, &numRanks) ;
